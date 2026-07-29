@@ -34,6 +34,47 @@ final class AudioCaptureManager: NSObject {
     @ObservationIgnored private var lastSystemLevelAt = Date.distantPast
     @ObservationIgnored private var lastMicLevelAt = Date.distantPast
 
+    /// Opt-in diagnostics for the "transcription dies when I join a call" bug:
+    /// one AUDIODBG log line per stream every 5 s with raw (pre-AEC) mic level,
+    /// cleaned (post-AEC) mic level, all-zero buffer counts, and SCK delivery
+    /// rate — enough to tell OS-delivered silence apart from AEC suppression.
+    /// Enable: PARROT_AUDIO_DEBUG=1 env, or `defaults write ... audioDebug -bool YES`.
+    static let audioDebugEnabled =
+        ProcessInfo.processInfo.environment["PARROT_AUDIO_DEBUG"] != nil
+        || UserDefaults.standard.bool(forKey: "audioDebug")
+    @ObservationIgnored private var dbgMic = DebugAccumulator(label: "mic")
+    @ObservationIgnored private var dbgSck = DebugAccumulator(label: "sck")
+
+    /// Accumulates levels between 5 s log flushes. Each instance is only touched
+    /// from its own stream's callback thread.
+    struct DebugAccumulator {
+        let label: String
+        var rawSum: Float = 0; var rawN = 0
+        var cleanSum: Float = 0; var cleanN = 0
+        var buffers = 0; var zeroBuffers = 0
+        var lastFlush = Date()
+
+        init(label: String) { self.label = label }
+
+        mutating func add(raw: Float, clean: Float?, refBacklog: Int?, extra: String = "") {
+            rawSum += raw; rawN += 1
+            if let clean { cleanSum += clean; cleanN += 1 }
+            buffers += 1
+            if raw == 0 { zeroBuffers += 1 }
+            let now = Date()
+            guard now.timeIntervalSince(lastFlush) >= 5 else { return }
+            let rawAvg = rawN > 0 ? rawSum / Float(rawN) : 0
+            let cleanAvg = cleanN > 0 ? cleanSum / Float(cleanN) : 0
+            let cleanPart = clean != nil ? String(format: " clean=%.5f", cleanAvg) : ""
+            let refPart = refBacklog.map { " refq=\($0)" } ?? ""
+            NSLog("Parrot AUDIODBG %@ raw=%.5f%@ bufs=%d zerobufs=%d%@%@",
+                  label, rawAvg, cleanPart, buffers, zeroBuffers, refPart, extra)
+            rawSum = 0; rawN = 0; cleanSum = 0; cleanN = 0
+            buffers = 0; zeroBuffers = 0
+            lastFlush = now
+        }
+    }
+
     private(set) var isCapturing = false
     private(set) var systemAudioURL: URL?
     private(set) var micAudioURL: URL?
@@ -266,6 +307,13 @@ final class AudioCaptureManager: NSObject {
                 // 10 ms frames (possibly empty until a frame fills) — fail-safe.
                 let micFloats = Self.floats(from: convertedBuffer)
                 let cleaned = self.echoCanceller?.process(mic: micFloats) ?? micFloats
+                if Self.audioDebugEnabled {
+                    self.dbgMic.add(
+                        raw: Self.meanAbs(micFloats),
+                        clean: cleaned.isEmpty ? nil : Self.meanAbs(cleaned),
+                        refBacklog: self.echoCanceller?.referenceBacklog,
+                        extra: String(format: " devfmt=%.0fHz", inputFormat.sampleRate))
+                }
                 guard !cleaned.isEmpty,
                       let cleanedBuffer = Self.makeBuffer(cleaned, format: targetFormat) else { return }
 
@@ -431,6 +479,13 @@ final class AudioCaptureManager: NSObject {
 
     // MARK: - Buffer helpers
 
+    /// Mean absolute sample value — the same "energy" measure the transcription
+    /// loop gates on (its silence threshold is 0.002).
+    private static func meanAbs(_ samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        return samples.reduce(into: Float(0)) { $0 += abs($1) } / Float(samples.count)
+    }
+
     /// Mono float samples from a PCM buffer.
     private static func floats(from buffer: AVAudioPCMBuffer) -> [Float] {
         guard let ch = buffer.floatChannelData?[0] else { return [] }
@@ -472,6 +527,15 @@ extension AudioCaptureManager: SCStreamOutput {
 
         // Persist everyone else's voice ("Them") as PCM.
         appendAudio(pcmBuffer, to: .system)
+
+        if Self.audioDebugEnabled {
+            dbgSck.add(
+                raw: Self.meanAbs(Self.floats(from: pcmBuffer)),
+                clean: nil,
+                refBacklog: nil,
+                extra: String(format: " fmt=%.0fHz x%dch",
+                              pcmBuffer.format.sampleRate, pcmBuffer.format.channelCount))
+        }
 
         // Feed the same audio to the echo canceller as the far-end reference, so it
         // can subtract this from the mic. Only when it's the expected 16 kHz mono.
