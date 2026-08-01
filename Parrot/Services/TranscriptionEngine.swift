@@ -97,6 +97,13 @@ final class TranscriptionEngine {
     /// - The whole init races a deadline; a first-time download can legitimately
     ///   take minutes, but past the deadline the user gets a real error state
     ///   (the dashboard renders it) instead of a spinner that never ends.
+    /// @MainActor: `modelState`/`isReady` are UI-observed, and a nonisolated
+    /// async func runs on the global executor, not the caller's actor — mutating
+    /// them there fires SwiftUI observation off-main and trips SwiftData's
+    /// main-queue assert when a @Query view is invalidating concurrently (the
+    /// #18 launch crash-loop). The heavy WhisperKit init is awaited, so main is
+    /// never blocked. Same rule for start/stopTranscribing below.
+    @MainActor
     func loadModel(_ modelName: String = "base") async {
         modelState = .loading
         do {
@@ -285,6 +292,7 @@ final class TranscriptionEngine {
     // MARK: - Transcription Loop
 
     /// Start the continuous transcription loop
+    @MainActor
     func startTranscribing(meetingStartTime: Date) {
         guard isReady else { return }
         // Never run two loops: cancel any prior task before starting a new one.
@@ -620,6 +628,7 @@ final class TranscriptionEngine {
     /// make it into the transcript. Await this before assembling the transcript.
     // ponytail: drain is uncapped — a hung whisper pass hangs stop; upgrade path
     // is a wall-clock cap + surfaced timeout.
+    @MainActor
     func stopTranscribing() async {
         // Streaming backend: flush finals, then tear down. When the stream is
         // healthy, the chunk buffers only hold pre-connection audio — clear
