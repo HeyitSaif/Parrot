@@ -86,23 +86,76 @@ final class TranscriptionEngine {
 
     // MARK: - Model Management
 
-    /// Load WhisperKit with the specified model
+    /// Load WhisperKit with the specified model.
+    ///
+    /// Two guards against the eternal "Loading WhisperKit model…" state this
+    /// used to produce (idle CPU, dead record button, no error):
+    /// - If the model is already on disk, pass its folder directly — WhisperKit's
+    ///   name resolution goes through the HuggingFace hub even for local models
+    ///   and has been observed suspending forever on a live network. A direct
+    ///   folder load is also offline-proof.
+    /// - The whole init races a deadline; a first-time download can legitimately
+    ///   take minutes, but past the deadline the user gets a real error state
+    ///   (the dashboard renders it) instead of a spinner that never ends.
     func loadModel(_ modelName: String = "base") async {
         modelState = .loading
         do {
             let config = WhisperKitConfig(
                 model: modelName,
+                modelFolder: Self.localModelFolder(for: modelName)?.path,
                 verbose: false,
                 logLevel: .none,
                 prewarm: true,
                 load: true
             )
-            whisperKit = try await WhisperKit(config)
+            whisperKit = try await Self.withTimeout(seconds: 300) { try await WhisperKit(config) }
             modelState = .ready
             isReady = true
         } catch {
             modelState = .error(error.localizedDescription)
             isReady = false
+        }
+    }
+
+    /// The on-disk folder for a model, if already downloaded. WhisperKit's repo
+    /// spells variants inconsistently ("large-v3-turbo" lives in
+    /// "openai_whisper-large-v3_turbo"), hence the normalized matcher below.
+    nonisolated static func localModelFolder(for modelName: String) -> URL? {
+        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml", isDirectory: true)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: base.path)) ?? []
+        return matchModelFolder(modelName, in: names)
+            .map { base.appendingPathComponent($0, isDirectory: true) }
+    }
+
+    /// Pure matcher (so --profile-test can drive it): compares case-insensitively
+    /// with '_' and '-' unified. Exactly one hit counts — none or ambiguity falls
+    /// back to WhisperKit's own hub resolution.
+    nonisolated static func matchModelFolder(_ modelName: String, in folderNames: [String]) -> String? {
+        func norm(_ s: String) -> String { s.lowercased().replacingOccurrences(of: "_", with: "-") }
+        let want = "openai-whisper-" + norm(modelName)
+        let hits = folderNames.filter { norm($0) == want }
+        return hits.count == 1 ? hits.first : nil
+    }
+
+    private struct ModelLoadTimeout: LocalizedError {
+        var errorDescription: String? {
+            "Model load timed out — check your connection, or pick the model again in Settings"
+        }
+    }
+
+    nonisolated private static func withTimeout<T: Sendable>(
+        seconds: TimeInterval, _ op: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await op() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw ModelLoadTimeout()
+            }
+            guard let first = try await group.next() else { throw ModelLoadTimeout() }
+            group.cancelAll()
+            return first
         }
     }
 

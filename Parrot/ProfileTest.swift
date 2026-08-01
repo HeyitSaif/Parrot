@@ -30,6 +30,8 @@ enum ProfileTest {
         testWAVEncoder()
         testAIUsageCost()
         testPermissionFlow()
+        testMicWatchdog()
+        testModelFolderMatch()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -287,6 +289,37 @@ enum ProfileTest {
         check("make's 0.0.0-dev never updates", !UpdateChecker.isNewer("9.9.9", than: "0.0.0-dev"))
         check("empty version never updates", !UpdateChecker.isNewer("9.9.9", than: ""))
         check("unparseable candidate is not newer", !UpdateChecker.isNewer("v1.2.3", than: "0.11.0"))
+    }
+
+    // The issue-#12 mic watchdog: sustained exact-zero input means the OS cut
+    // the feed (a call app holds the mic); dither-level noise never triggers.
+    static func testMicWatchdog() {
+        typealias W = AudioCaptureManager.MicSignalWatchdog
+        var w = W()
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        check("watchdog quiet dithery mic is ok", w.observe(meanAbs: 0.0001, at: t0) == .ok)
+        check("watchdog first zero buffer is ok", w.observe(meanAbs: 0, at: t0.addingTimeInterval(0.1)) == .ok)
+        check("watchdog short zero run is ok", w.observe(meanAbs: 0, at: t0.addingTimeInterval(1.9)) == .ok)
+        check("watchdog sustained zeros are lost", w.observe(meanAbs: 0, at: t0.addingTimeInterval(2.2)) == .lost)
+        check("watchdog reports lost only once", w.observe(meanAbs: 0, at: t0.addingTimeInterval(3)) == .stillLost)
+        check("watchdog recovers on real signal", w.observe(meanAbs: 0.01, at: t0.addingTimeInterval(4)) == .recovered)
+        check("watchdog ok after recovery", w.observe(meanAbs: 0.01, at: t0.addingTimeInterval(5)) == .ok)
+        var w2 = W()
+        _ = w2.observe(meanAbs: 0, at: t0)
+        _ = w2.observe(meanAbs: 0.02, at: t0.addingTimeInterval(1))
+        check("watchdog nonzero resets the zero run", w2.observe(meanAbs: 0, at: t0.addingTimeInterval(2.5)) == .ok)
+    }
+
+    // Local model folder matching (the hub-resolution bypass in loadModel).
+    static func testModelFolderMatch() {
+        let disk = ["openai_whisper-base", "openai_whisper-small",
+                    "openai_whisper-large-v3_turbo", "distil-whisper_distil-large-v3"]
+        check("folder match base", TranscriptionEngine.matchModelFolder("base", in: disk) == "openai_whisper-base")
+        check("folder match turbo across separators",
+              TranscriptionEngine.matchModelFolder("large-v3-turbo", in: disk) == "openai_whisper-large-v3_turbo")
+        check("folder match misses absent model", TranscriptionEngine.matchModelFolder("tiny", in: disk) == nil)
+        check("folder match rejects ambiguity",
+              TranscriptionEngine.matchModelFolder("base", in: ["openai_whisper-base", "openai-whisper_base"]) == nil)
     }
 
     static func testStableHash() {

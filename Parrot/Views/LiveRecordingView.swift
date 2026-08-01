@@ -146,6 +146,13 @@ struct LiveRecordingView: View {
                 .help("Open Microphone privacy settings and enable Parrot")
             }
 
+            if cap.micSignalLost {
+                Label("mic muted by another app — reclaiming", systemImage: "mic.slash.circle.fill")
+                    .font(.appCaption2)
+                    .foregroundStyle(Theme.Colors.warn)
+                    .help("macOS is delivering pure silence from the microphone — usually a call app (browser meeting, Zoom) holding it. Parrot retries automatically and recovers the moment the mic frees up. Everyone else's audio keeps recording meanwhile.")
+            }
+
             if cap.echoCancellerStarved {
                 Label("echo cancel inactive", systemImage: "waveform.slash")
                     .font(.appCaption2)
