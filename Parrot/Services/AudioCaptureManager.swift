@@ -171,6 +171,13 @@ final class AudioCaptureManager: NSObject {
 
     // MARK: - Start Capture
 
+    /// @MainActor for the same reason as TranscriptionEngine.loadModel: these
+    /// lifecycle funcs mutate UI-observed state (`isCapturing`, `micActive`,
+    /// device names…), and a nonisolated async func runs on the global executor
+    /// — off-main observation mutations race SwiftUI/SwiftData invalidation.
+    /// The tap/stream hot path is untouched: it stays off-main and already hops
+    /// via DispatchQueue.main.async for every observable write.
+    @MainActor
     func startCapture() async throws {
         let storageDir = Self.storageDirectory()
         let timestamp = ISO8601DateFormatter().string(from: .now)
@@ -216,6 +223,7 @@ final class AudioCaptureManager: NSObject {
 
     // MARK: - Stop Capture
 
+    @MainActor
     func stopCapture() async {
         isCapturing = false
         micActive = false
