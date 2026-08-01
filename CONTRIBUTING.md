@@ -1,0 +1,31 @@
+# Contributing to Parrot
+
+First: there's no formal process here. Open an issue, open a PR, or just say hi — we'll figure it out together. This file is only the 60-second orientation so you don't have to reverse-engineer the repo.
+
+## Build & test
+
+```bash
+make run    # build + assemble dist/Parrot.app + launch
+make test   # headless logic harness (~94 checks) — run this before a PR
+```
+
+Build with `make`, not Xcode's UI — Xcode's explicit-modules build intermittently races on WhisperKit's dependencies (`make` uses plain `swift build`). If you want the IDE, `make xcode` regenerates the project from `project.yml`; never hand-edit the `.xcodeproj`.
+
+`make signing-help` explains how to stop macOS permissions resetting between builds.
+
+## Finding your way
+
+- [FILEMAP.md](FILEMAP.md) — one line per source file; grep the map, not the tree
+- [AGENTS.md](AGENTS.md) — layout and conventions (also read by coding agents)
+
+## What a good PR looks like here
+
+- `make test` passes. If you're fixing logic, add a check to `ProfileTest.swift` — there is no XCTest target, on purpose.
+- UI changes are verified with the snapshot harnesses (`--snapshot`, `--copilot-snapshot`, `--sidebar-snapshot`), in light *and* dark.
+- New files go through `project.yml` (then `make xcode`), plus a line in `FILEMAP.md`.
+- No key material anywhere — API keys live in the Keychain, never in code, logs, or commits.
+
+## Ground rules
+
+- **Local-first is the product.** Anything that sends data off-device must be opt-in and labelled with exactly what it sends.
+- PRs get read line by line, usually within a few days. AI-assisted contributions are welcome — this project is built that way too — but you're responsible for what you submit.
