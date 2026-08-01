@@ -38,7 +38,32 @@ struct ParrotMain {
     }
 }
 
+/// Cmd-Q mid-recording used to kill capture mid-flight: the .caf headers never
+/// finalized and the meeting stayed `.recording`, feeding the #18 relaunch
+/// crash-loop. Quit now runs the same stop path as the Stop button, then
+/// terminates. The post-stop report chain is deliberately not awaited — the
+/// meeting exits as `.processing` and launch recovery finishes it by design.
+@MainActor
+final class ParrotAppDelegate: NSObject, NSApplicationDelegate {
+    weak var recordingManager: RecordingManager?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let manager = recordingManager, manager.isRecording || manager.isStopping else {
+            return .terminateNow
+        }
+        Task { @MainActor in
+            await manager.stopRecording()      // no-op if a stop is already draining…
+            while manager.isStopping {         // …so wait that one out instead
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+}
+
 struct ParrotApp: App {
+    @NSApplicationDelegateAdaptor(ParrotAppDelegate.self) private var appDelegate
     @State private var recordingManager = RecordingManager()
     @State private var appSession = AppSession()
     @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
@@ -69,7 +94,10 @@ struct ParrotApp: App {
                         .environment(recordingManager)
                         .interactiveDismissDisabled()
                 }
-                .onAppear(perform: applyAppearance)
+                .onAppear {
+                    applyAppearance()
+                    appDelegate.recordingManager = recordingManager
+                }
                 .onChange(of: appearance) { applyAppearance() }
         }
         .modelContainer(sharedModelContainer)
