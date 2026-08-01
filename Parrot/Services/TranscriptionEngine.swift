@@ -457,24 +457,15 @@ final class TranscriptionEngine {
                     // fallback when a cloud backend hiccups (never lose a chunk).
                     func decodeLocally() async throws -> [(text: String, confidence: Float?)] {
                         guard let whisperKit = self.whisperKit else { return [] }
-                        // Stream interim words to the live view as they decode; strip
-                        // any stray special/timestamp tokens defensively.
-                        let interimCallback: TranscriptionCallback = { [weak self] progress in
-                            let raw = Self.cleaned(progress.text)
-                            // Same glossary-echo strip as the preview path — the
-                            // live line used to flash "Glossary: …" during quiet.
-                            let partial = (self?.glossaryActive == true)
-                                ? (Self.strippingGlossaryEcho(raw) ?? "") : raw
-                            if !partial.isEmpty {
-                                Task { @MainActor in self?.currentText = partial }
-                            }
-                            return nil
-                        }
+                        // No interim streaming here anymore: the rolling preview is
+                        // the live text, and re-streaming the same sentence from
+                        // word one during the commit decode made its tail appear
+                        // three times over (preview, re-stream, committed bubble —
+                        // the "repeated 3 times" dry-run report, 2026-08-01).
                         func decode(_ options: DecodingOptions) async throws -> [(text: String, confidence: Float?)] {
                             let result = try await whisperKit.transcribe(
                                 audioArray: chunk,
-                                decodeOptions: options,
-                                callback: interimCallback
+                                decodeOptions: options
                             )
                             return result.map { transcription in
                                 (transcription.text,
