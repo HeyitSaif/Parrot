@@ -33,6 +33,7 @@ enum ProfileTest {
         testPermissionFlow()
         testMicWatchdog()
         testModelFolderMatch()
+        testSegmenter()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -380,6 +381,53 @@ enum ProfileTest {
         check("folder match misses absent model", TranscriptionEngine.matchModelFolder("tiny", in: disk) == nil)
         check("folder match rejects ambiguity",
               TranscriptionEngine.matchModelFolder("base", in: ["openai_whisper-base", "openai-whisper_base"]) == nil)
+    }
+
+    // The live-loop utterance segmenter that replaced fixed 2 s chunks.
+    static func testSegmenter() {
+        typealias Seg = TranscriptionEngine.Segmenter
+        // Building blocks in whole 100 ms frames: audible speech vs true silence.
+        func speech(_ frames: Int) -> [Float] { Array(repeating: 0.02, count: frames * Seg.frame) }
+        func silence(_ frames: Int) -> [Float] { Array(repeating: 0.0001, count: frames * Seg.frame) }
+
+        // Silence never decodes: live keeps only the partial tail frame, drain eats all.
+        let quiet = silence(8) + [0.0001, 0.0001]
+        check("seg silence live drops whole frames",
+              Seg.nextCut(in: quiet, draining: false) == .init(dropLeading: 8 * Seg.frame, take: nil))
+        check("seg silence draining drops everything",
+              Seg.nextCut(in: quiet, draining: true) == .init(dropLeading: quiet.count, take: nil))
+
+        // Speech bounded by a pause cuts at the boundary, padded 100 ms into it.
+        let utterance = silence(3) + speech(10) + silence(Seg.pauseFrames) + speech(2)
+        check("seg utterance cuts at pause",
+              Seg.nextCut(in: utterance, draining: false)
+                == .init(dropLeading: 3 * Seg.frame, take: (10 + Seg.padFrames) * Seg.frame))
+
+        // A pause shorter than the threshold does not end the utterance.
+        let midPause = silence(2) + speech(6) + silence(Seg.pauseFrames - 2) + speech(4)
+        check("seg short pause keeps buffering",
+              Seg.nextCut(in: midPause, draining: false) == .init(dropLeading: 2 * Seg.frame, take: nil))
+
+        // Sub-300 ms islands between silences are noise: dropped with their pause.
+        let blip = silence(4) + speech(2) + silence(Seg.pauseFrames) + speech(3)
+        check("seg noise blip dropped without decode",
+              Seg.nextCut(in: blip, draining: false)
+                == .init(dropLeading: (4 + 2 + Seg.pauseFrames) * Seg.frame, take: nil))
+
+        // Continuous speech: wait while live, forced cut at the cap, take-all on drain.
+        let running = speech(20)
+        check("seg continuous speech waits",
+              Seg.nextCut(in: running, draining: false) == .init(dropLeading: 0, take: nil))
+        let monologue = speech(Seg.maxSegmentSamples / Seg.frame + 10)
+        check("seg cap forces a cut",
+              Seg.nextCut(in: monologue, draining: false) == .init(dropLeading: 0, take: Seg.maxSegmentSamples))
+        check("seg draining takes the tail",
+              Seg.nextCut(in: running, draining: true) == .init(dropLeading: 0, take: running.count))
+
+        // Two utterances buffered: the cut ends at the FIRST boundary.
+        let two = speech(5) + silence(Seg.pauseFrames) + speech(5) + silence(Seg.pauseFrames)
+        check("seg cuts one utterance at a time",
+              Seg.nextCut(in: two, draining: false) == .init(dropLeading: 0, take: (5 + Seg.padFrames) * Seg.frame))
     }
 
     static func testStableHash() {

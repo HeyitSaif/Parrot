@@ -48,7 +48,8 @@ These can't run in the CI container and should be verified on-device:
 
 - Xcode build + real end-to-end latency with a live Claude API key (expected
   time-to-full-response ~1.5–3s for Haiku with this payload size)
-- WhisperKit transcription lag (segment cadence is ~2s chunks; adds up to ~2s
-  ahead of the engine's numbers above)
+- WhisperKit transcription lag (segments are utterance-bound since VAD
+  segmentation: text lands at natural pauses, worst-case 12 s into an
+  uninterrupted monologue — see TranscriptionEngine.Segmenter)
 - UI responsiveness of the insight panel during long calls (LazyVStack should
   keep this flat, but verify with Instruments on a 1-hour session)

@@ -194,6 +194,94 @@ final class TranscriptionEngine {
         }
     }
 
+    // MARK: - Utterance Segmentation
+
+    /// Pure utterance segmenter for the live loop (--profile-test drives it).
+    ///
+    /// Replaces the old fixed 2 s chunk emission, which cut ~75% of lines
+    /// mid-sentence and decoded silence-bounded fragments that Whisper turned
+    /// into hallucinations ("you", YouTube-outro residue). The segmenter only
+    /// ever emits speech bounded by a real pause: leading silence is discarded
+    /// outright (never decoded — the structural fix for silence hallucinations),
+    /// and an utterance is cut when a sustained pause follows it, when it hits
+    /// the length cap, or when the loop is draining at stop.
+    enum Segmenter {
+        /// Energy-frame size: 100 ms at 16 kHz. Pause detection resolution.
+        static let frame = 1600
+        /// Same mean-abs floor the loop has always used for "this is speech".
+        static let silenceFloor: Float = 0.002
+        /// 600 ms of continuous silence ends an utterance. Intra-word and
+        /// clause gaps run shorter; sentence gaps run longer.
+        // ponytail: fixed threshold — adaptive (speaker-rate) pausing if
+        // fast-talker reports come in.
+        static let pauseFrames = 6
+        /// Speech islands under 300 ms surrounded by silence are clicks/noise:
+        /// dropped without a decode.
+        static let minSpeechSamples = 4800
+        /// Forced cut for uninterrupted speech: bounds live latency and keeps a
+        /// backlogged pass from decoding a minute as one wall of text (the old
+        /// 2 s cap's job, at utterance scale). 12 s at 16 kHz.
+        // ponytail: cap cuts mid-word; upgrade is cutting back at the
+        // lowest-energy frame near the cap.
+        static let maxSegmentSamples = 192_000
+        /// Keep 100 ms of the pause on the cut so Whisper hears the word release.
+        static let padFrames = 1
+
+        /// One polling decision: discard `dropLeading` samples (silence — the
+        /// consumed counter still advances so timestamps stay absolute), then
+        /// cut `take` samples for decoding; `take == nil` means keep buffering.
+        struct Cut: Equatable {
+            var dropLeading: Int
+            var take: Int?
+        }
+
+        static func nextCut(in buffer: [Float], draining: Bool) -> Cut {
+            let n = buffer.count
+            let frames = n / frame
+            func frameEnergy(_ i: Int) -> Float {
+                var sum: Float = 0
+                for j in (i * frame)..<((i + 1) * frame) { sum += abs(buffer[j]) }
+                return sum / Float(frame)
+            }
+
+            // Leading silence: whole silent frames before the first speech frame.
+            var speechFrame: Int?
+            for i in 0..<frames where frameEnergy(i) >= silenceFloor { speechFrame = i; break }
+            guard let s = speechFrame else {
+                // All silence so far. Keep the partial tail frame while live (it
+                // may be the onset of a word); draining consumes everything so
+                // the loop can reach empty and exit.
+                return Cut(dropLeading: draining ? n : frames * frame, take: nil)
+            }
+            let drop = s * frame
+
+            // Scan for the first sustained pause after speech starts.
+            var silentRun = 0
+            for i in s..<frames {
+                if frameEnergy(i) < silenceFloor {
+                    silentRun += 1
+                    if silentRun == pauseFrames {
+                        let speechEndFrame = i - pauseFrames + 1  // first frame of the pause
+                        let speechLen = speechEndFrame * frame - drop
+                        if speechLen < minSpeechSamples {
+                            // Noise blip between silences: discard it with its pause.
+                            return Cut(dropLeading: (i + 1) * frame, take: nil)
+                        }
+                        return Cut(dropLeading: drop, take: (speechEndFrame + padFrames) * frame - drop)
+                    }
+                } else {
+                    silentRun = 0
+                }
+            }
+
+            // Speech with no boundary yet.
+            let speechLen = n - drop
+            if speechLen >= maxSegmentSamples { return Cut(dropLeading: drop, take: maxSegmentSamples) }
+            if draining { return Cut(dropLeading: drop, take: speechLen) }
+            return Cut(dropLeading: drop, take: nil)
+        }
+    }
+
     // MARK: - Transcription Loop
 
     /// Start the continuous transcription loop
@@ -264,39 +352,33 @@ final class TranscriptionEngine {
         transcriptionTask = Task { [weak self] in
             guard let self else { return }
 
-            // Trigger a transcription pass once a stream has buffered at least
-            // ~2 s of audio (32k samples at 16 kHz).
-            let chunkSize = 32000
-            // Hard cap on how much audio a single pass consumes. Without this, a
-            // slow Whisper pass (CPU spike, larger model) lets the buffer grow
-            // unbounded and the next pass transcribes 30–70 s of speech as ONE
-            // giant segment — the "silent for minutes, then a wall of text" bug.
-            // Capping keeps every emitted segment ~2 s; under sustained load
-            // latency grows gracefully instead of dumping a paragraph.
-            let maxChunkSamples = 32000
-
             while !Task.isCancelled {
                 // isTranscribing == false flips the loop into drain mode: keep
-                // consuming the backlog (any chunk size, down to the final <2 s
-                // tail) and exit once the buffers are empty. Capture must already
-                // be stopped by then or the buffers keep growing — that ordering
-                // is RecordingManager.stopRecording's contract.
+                // consuming the backlog (whole utterances, down to the final
+                // sub-frame tail) and exit once the buffers are empty. Capture
+                // must already be stopped by then or the buffers keep growing —
+                // that ordering is RecordingManager.stopRecording's contract.
                 let draining = !self.isTranscribing
                 var didWork = false
 
                 for source in AudioSource.allCases {
-                    // Pull one bounded window for this stream under the lock —
-                    // freeing the consumed audio so it doesn't pile up for the whole
-                    // call, and avoiding any index race with a reset. The sample
-                    // counter and clock offset ride along in the same lock.
+                    // Pull at most one utterance for this stream under the lock.
+                    // The segmenter decides the cut: leading silence is discarded
+                    // (the consumed counter still advances, keeping timestamps
+                    // absolute) and speech is only taken once a pause bounds it —
+                    // or the cap / drain forces the cut. Freeing consumed audio
+                    // keeps memory flat; the counter and clock offset ride along
+                    // in the same lock.
                     let (chunk, startSample, clockOffset): ([Float], Int, TimeInterval) = self.bufferLock.withLock {
-                        guard let buffered = self.audioBuffers[source],
-                              buffered.count >= (draining ? 1 : chunkSize) else { return ([], 0, 0) }
-                        let take = min(buffered.count, maxChunkSamples)
-                        self.audioBuffers[source] = Array(buffered[take...])
+                        guard let buffered = self.audioBuffers[source], !buffered.isEmpty else { return ([], 0, 0) }
+                        let cut = Segmenter.nextCut(in: buffered, draining: draining)
+                        let taken = cut.take.map { Array(buffered[cut.dropLeading ..< cut.dropLeading + $0]) } ?? []
+                        let consumed = cut.dropLeading + taken.count
+                        guard consumed > 0 else { return ([], 0, 0) }
+                        self.audioBuffers[source] = Array(buffered[consumed...])
                         let start = self.consumedSamples[source] ?? 0
-                        self.consumedSamples[source] = start + take
-                        return (Array(buffered[..<take]), start, self.localClockOffset[source] ?? 0)
+                        self.consumedSamples[source] = start + consumed
+                        return (taken, start + cut.dropLeading, self.localClockOffset[source] ?? 0)
                     }
                     guard !chunk.isEmpty else { continue }
                     didWork = true
@@ -304,9 +386,9 @@ final class TranscriptionEngine {
                     let startTime = Double(startSample) / 16000.0 + clockOffset
                     let endTime = Double(startSample + chunk.count) / 16000.0 + clockOffset
 
-                    // Skip near-silent chunks — saves Whisper passes and avoids
-                    // hallucinated text on silence. (0.001 let too much room
-                    // noise through; hallucination filter below catches the rest.)
+                    // Backstop energy gate. The segmenter already refuses to cut
+                    // silence, so this mostly guards drain-mode tails and keeps
+                    // feeding the hallucination filter its energy signal.
                     let energy = chunk.reduce(into: Float(0)) { $0 += abs($1) } / Float(chunk.count)
                     guard energy > 0.002 else { continue }
 
