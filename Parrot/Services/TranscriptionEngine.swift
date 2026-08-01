@@ -50,6 +50,10 @@ final class TranscriptionEngine {
     private var consumedSamples: [AudioSource: Int] = [:]
     private var meetingStartTime = Date()
 
+    /// PARROT_LOOP_TRACE=1: print every raw decode piece before filtering —
+    /// the tell for "the loop decoded it but a filter ate it" class of drops.
+    static let loopTrace = ProcessInfo.processInfo.environment["PARROT_LOOP_TRACE"] != nil
+
     private(set) var isReady = false
     private(set) var isTranscribing = false
     private(set) var currentText = ""
@@ -417,16 +421,40 @@ final class TranscriptionEngine {
                             }
                             return nil
                         }
-                        let result = try await whisperKit.transcribe(
-                            audioArray: chunk,
-                            decodeOptions: decodeOptions,
-                            callback: interimCallback
-                        )
-                        return result.map { transcription in
-                            (transcription.text,
-                             transcription.segments.map(\.avgLogprob).reduce(0, +)
-                                / Float(max(transcription.segments.count, 1)))
+                        func decode(_ options: DecodingOptions) async throws -> [(text: String, confidence: Float?)] {
+                            let result = try await whisperKit.transcribe(
+                                audioArray: chunk,
+                                decodeOptions: options,
+                                callback: interimCallback
+                            )
+                            return result.map { transcription in
+                                (transcription.text,
+                                 transcription.segments.map(\.avgLogprob).reduce(0, +)
+                                    / Float(max(transcription.segments.count, 1)))
+                            }
                         }
+
+                        let pieces = try await decode(decodeOptions)
+                        guard self.glossaryActive else { return pieces }
+                        // The glossary prompt can make Whisper swallow a clear
+                        // utterance whole — empty text (or only the echoed
+                        // prompt) for real speech. Deterministic repro:
+                        // --liveloop-test with LIVELOOP_VOCAB on
+                        // large-v3-turbo. The segmenter only cuts real speech,
+                        // so an unusable decode of it is always wrong: decode
+                        // once more without the prompt. Costs one extra pass
+                        // only when the prompt misfired; that utterance just
+                        // loses its spelling bias.
+                        let usable = pieces.contains { piece in
+                            let t = Self.cleaned(piece.text)
+                            return !t.isEmpty && Self.strippingGlossaryEcho(t) != nil
+                        }
+                        if usable { return pieces }
+                        if Self.loopTrace { print("TRACE \(source.label) glossary decode unusable — retrying bare") }
+                        var bare = decodeOptions
+                        bare.promptTokens = nil
+                        bare.usePrefillPrompt = false
+                        return try await decode(bare)
                     }
 
                     do {
@@ -447,15 +475,22 @@ final class TranscriptionEngine {
                         }
 
                         for piece in pieces {
-                            let text = Self.cleaned(piece.text)
-                            guard !text.isEmpty else { continue }
+                            let cleaned = Self.cleaned(piece.text)
+                            if Self.loopTrace {
+                                print(String(format: "TRACE %@ [%.2f-%.2f] raw=%@",
+                                             source.label, startTime, endTime,
+                                             piece.text.isEmpty ? "<empty>" : piece.text))
+                            }
+                            guard !cleaned.isEmpty else { continue }
                             // Silence hallucinations ("you", "Thank you.",
                             // "Okay.") flooded real transcripts — drop them
                             // when the chunk was near-silent.
-                            guard !Self.isLikelyHallucination(text, energy: energy) else { continue }
-                            // Prompt leak: quiet chunks echo the glossary prompt
-                            // back as "transcription".
-                            guard !(self.glossaryActive && Self.isGlossaryEcho(text)) else { continue }
+                            guard !Self.isLikelyHallucination(cleaned, energy: energy) else { continue }
+                            // Prompt leak: the glossary prompt comes back as
+                            // "transcription", alone or prefixed onto real
+                            // speech — keep the speech, drop only the echo.
+                            guard let text = self.glossaryActive
+                                ? Self.strippingGlossaryEcho(cleaned) : cleaned else { continue }
 
                             await MainActor.run {
                                 // Clear the interim line — the text lives in the
@@ -580,6 +615,24 @@ final class TranscriptionEngine {
             .hasPrefix("glossary")
     }
 
+    /// A prompt leak can PREFIX real speech, not only stand alone — turbo
+    /// decoded a live utterance as "Glossary: Launchese, Uygar. However I'm
+    /// worried…" and the drop-the-segment filter ate the real sentence
+    /// (2026-08-01; `--liveloop-test <audio> large-v3-turbo` with
+    /// LIVELOOP_VOCAB reproduces it deterministically). Utterance-sized
+    /// segments made that loss a whole sentence, so: strip the leaked echo
+    /// sentence, keep what follows. nil = pure echo, drop the segment.
+    static func strippingGlossaryEcho(_ text: String) -> String? {
+        guard isGlossaryEcho(text) else { return text }
+        // The leak is one short "Glossary: …" sentence; cut through its
+        // terminator and keep any real speech behind it.
+        if let echo = text.range(of: #"^[^.!?]{0,120}[.!?]+"#, options: .regularExpression) {
+            let rest = String(text[echo.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return rest.isEmpty ? nil : rest
+        }
+        return nil
+    }
+
     // MARK: - File Import (whole-file, on-device)
 
     /// Transcribe a complete audio file on-device — the import path. Runs fully
@@ -613,10 +666,11 @@ final class TranscriptionEngine {
 
         // One mixed track, so every segment is "Them"; diarization splits it later.
         return results.flatMap(\.segments).compactMap { segment in
-            let text = Self.cleaned(segment.text)
-            guard !text.isEmpty else { return nil }
-            // Same glossary-prompt echo filter as the live loop.
-            guard !(glossaryActive && Self.isGlossaryEcho(text)) else { return nil }
+            let cleaned = Self.cleaned(segment.text)
+            guard !cleaned.isEmpty else { return nil }
+            // Same glossary-prompt echo handling as the live loop.
+            guard let text = glossaryActive
+                ? Self.strippingGlossaryEcho(cleaned) : cleaned else { return nil }
             return TranscriptionResult(
                 text: text,
                 source: .them,

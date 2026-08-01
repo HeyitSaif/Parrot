@@ -19,6 +19,11 @@ struct ParrotMain {
             MainActor.assumeIsolated { SidebarSnapshot.write(to: args[i + 1]) }
             return
         }
+        if let i = args.firstIndex(of: "--liveloop-test"), i + 1 < args.count {
+            let model = (i + 2 < args.count) ? args[i + 2] : ""
+            LiveLoopTest.run(audioPath: args[i + 1], model: model)
+            return
+        }
         if let i = args.firstIndex(of: "--transcribe-test"), i + 1 < args.count {
             let modelFolder = (i + 2 < args.count) ? args[i + 2] : ""
             TranscribeTest.run(audioPath: args[i + 1], modelFolder: modelFolder)
