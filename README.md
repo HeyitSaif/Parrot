@@ -20,8 +20,10 @@ If you find this useful or just think the idea is cool, give it a star. It'll ma
 
 - **Records system audio + microphone** — Captures what everyone says in a meeting (via ScreenCaptureKit) plus your own voice
 - **Real-time transcription, your choice of engine** — On-device WhisperKit by default (private, free). Or bring your own key for **Groq** (big-model accuracy for ~$0.04/hr) or **Deepgram** (true streaming — words appear ~300 ms after they're spoken). Cloud engines fall back to on-device automatically if anything fails mid-call
+- **Transcripts read like people talk** — Lines land as whole sentences when the speaker pauses (not chopped 2-second fragments), with a live preview filling in while they're still mid-sentence. Silence is never transcribed
 - **Post-call polish pass (optional)** — After you hit Stop, re-transcribe the whole call through Groq's large model and regenerate the reports from the cleaner text, for pennies
-- **Live Call Copilot** — An always-on assistant that watches the conversation: a live coach card with a 0–100 "how is this call going" score, suggested answers grounded in *your* documents, pinned blocker/question cards that auto-resolve when you handle them, and action items captured as you promise them. Opt-in, powered by the Claude API (bring your own key) — transcript text goes to the API, audio never leaves your Mac
+- **Live Call Copilot** — An always-on assistant that watches the conversation: a live coach card with a 0–100 "how is this call going" score, suggested answers grounded in *your* documents, pinned blocker/question cards that auto-resolve when you handle them, and action items captured as you promise them. Opt-in, and you pick the brain: **Claude** (bring your own key), a **local model via Ollama** (fully offline AI), or any OpenAI-compatible server. Transcript text goes to your chosen provider, audio never leaves your Mac
+- **You control what the Copilot spends** — A pace setting (Relaxed fits free model tiers), a dial for how much conversation each request carries, and a pause button right on the call screen: while paused, nothing is sent and nothing is spent
 - **Call Profiles** — Reshape the copilot per call type (sales discovery, 1:1 coaching, interviews…): each profile has its own insight kinds, sentiment gauges, persona, and tone
 - **Per-call AI cost transparency** — Every meeting shows what the AI actually cost: model, tokens, calls, transcription minutes, and estimated dollars, with a line-by-line breakdown. Local features show $0.00, proudly
 - **Knows who's talking** — Your mic is transcribed as "Me" and system audio as "Them", live and with zero ML guesswork; energy-based diarization then refines who's who within "Them" after the call
@@ -195,7 +197,7 @@ Contributing note: the project is generated with **xcodegen** — if you add or 
 Things I want to add but haven't figured out yet:
 
 - [ ] **Real speaker diarization** — integrate [SpeakerKit](https://github.com/argmaxinc/argmax-oss-swift) so it actually knows who's talking
-- [ ] **Local LLM for summaries & copilot** — the AI features currently need a Claude key; an MLX-based local model would make even those fully offline
+- [x] **Local LLM for summaries & copilot** — done! Point the copilot and reports at **Ollama** and every AI feature runs on your Mac, no key, no cloud. (An in-process MLX model, skipping Ollama entirely, may still come one day)
 - [ ] **Calendar integration** — auto-name meetings based on what's on my calendar
 - [ ] **Keyword bookmarks** — mark important moments during a recording
 - [ ] **Better waveform visualization** — the current one is... functional
