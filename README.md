@@ -74,6 +74,8 @@ Found something that contradicts any of this? That's a security issue — see [S
 
 ## Getting Started
 
+> 📖 There's a proper user guide now — **[Parrot Help](https://turantekin.github.io/Parrot/help/)** — with a walkthrough of every feature. The same pages ship inside the app under **Help → Parrot Help**, searchable and offline.
+
 ### Download (the easy way)
 
 Grab the latest notarized `.dmg` from the **[Releases page](https://github.com/turantekin/Parrot/releases)**, drag Parrot into Applications, and hit record. No Xcode, no build step. Requires macOS 14+ (Sonoma) on Apple Silicon.

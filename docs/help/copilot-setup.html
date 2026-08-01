@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="copilot, setup, claude, api key, ollama, local model, custom server, openai compatible, reports provider, enable">
+<title>Setting up the Copilot</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>Setting up the Copilot</h1>
+
+<p>The Copilot is the AI layer: live suggestion cards during the call and the
+report afterwards. It is <strong>off by default</strong> and Parrot works
+perfectly well as a recorder and transcriber without it. When you want it,
+flip it on in Settings → Copilot and pick who does the thinking.</p>
+
+<h2>Three ways to power it</h2>
+<ul>
+  <li><strong>Claude (cloud).</strong> The sharpest option. You bring your own
+  API key (Settings → API Keys), transcript text is sent to Anthropic during
+  calls, audio never is. Costs money per call; Parrot shows you exactly how
+  much on each meeting.</li>
+  <li><strong>Ollama (local).</strong> Free and fully private, the AI runs on
+  your Mac. Install <a href="https://ollama.com">Ollama</a> yourself, then
+  pick a model in Parrot's settings. If the model isn't downloaded yet, Parrot
+  offers to pull it with a progress bar. A small model like
+  <code>llama3.2:3b</code> keeps up with live calls; on Apple Silicon get the
+  native build or it will be painfully slow.</li>
+  <li><strong>Custom server.</strong> Any OpenAI-compatible endpoint: your own
+  machine, a company gateway, OpenRouter and friends. Paste the base URL and
+  model name. If you're on a free tier with strict limits, the pace settings
+  in <a href="copilot-live.html">the next topic</a> are made for you.</li>
+</ul>
+
+<h2>Different brains for different jobs</h2>
+<p>Live cards need to be quick and sharp. The post-call report has all the
+time in the world. So Parrot lets you pick a different backend for each: a
+common combo is Claude for the live cards and a local model for reports, which
+keeps reports free and private without slowing the call down. If you only set
+up one, both jobs use it.</p>
+
+</body>
+</html>

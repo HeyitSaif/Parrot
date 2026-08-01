@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="transcript, live, sentences, language, turkish, auto detect, custom vocabulary, glossary, names, spelling, typing bubble, delay">
+<title>The live transcript</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>The live transcript</h1>
+
+<img src="img/copilot-bubbles.png" alt="Live transcript with chat bubbles">
+
+<h2>How text appears</h2>
+<p>Parrot writes the transcript in whole sentences, not word soup. While
+someone is talking you'll see a light preview filling in, and the moment they
+pause, the finished sentence lands as a bubble. If someone talks for a very
+long stretch without pausing, Parrot commits what it has every 12 seconds so
+the transcript never falls far behind.</p>
+
+<p>One honest note: a sentence can only be finished once the speaker actually
+pauses, so the final text always arrives a beat after the words. That beat is
+the price of getting clean, complete sentences instead of fragments. The
+preview keeps you company in the meantime.</p>
+
+<h2>Languages</h2>
+<p>Out of the box Parrot auto-detects the language per sentence, which is
+handy for mixed-language calls but can occasionally guess wrong on a noisy
+bit, and the preview can flicker through a wrong language before the real
+sentence lands. If your calls are always in one language, set it explicitly in
+Settings → Transcription and everything gets steadier.</p>
+
+<h2>Teach it your words</h2>
+<p>Whisper has never met your company name. If the transcript keeps mangling
+names or jargon ("LaunchEase" becoming "Lawn Cheese" is a real example from
+this very app's history), add those words in Settings → Transcription →
+Custom vocabulary, separated by commas. Parrot whispers them to the model on
+every pass so it spells them right.</p>
+
+<h2>Cloud engines, if you want them</h2>
+<p>On-device Whisper is the default and needs no account. If you prefer, you
+can transcribe through Groq or stream through Deepgram with your own API keys
+in Settings → Transcription. If a cloud engine hiccups mid-call, Parrot
+quietly falls back to the on-device model for the affected part, so a flaky
+connection never costs you transcript.</p>
+
+</body>
+</html>

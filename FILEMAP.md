@@ -72,6 +72,8 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `project.yml` | xcodegen input; `Parrot.xcodeproj` is generated from it |
 | `Package.swift` | SwiftPM deps (WhisperKit, vendored CSpeexDSP) |
 | `scripts/release.sh` | Release packaging; mirrors the Makefile's bundle step |
+| `scripts/assemble-help.sh` | Builds the Apple Help Book into the .app from `docs/help/` (both builders call it) |
+| `docs/help/` | User guide: one HTML set serving GitHub Pages AND the in-app Help menu |
 | `Vendor/CSpeexDSP/` | Vendored C echo canceller — do not modify |
 | `docs/IMPROVEMENT-ROADMAP.md` | Roadmap + build notes (incl. the Xcode race) |
 | `docs/PERFORMANCE.md` | Performance findings |

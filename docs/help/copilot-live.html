@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="cards, suggestions, blockers, pause copilot, pace, fast, balanced, relaxed, rate limit, 429, free model, context window, tokens, cost control">
+<title>The Copilot during a call</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>The Copilot during a call</h1>
+
+<img src="img/copilot.png" alt="Copilot panel with call score and a suggested answer">
+
+<h2>What you're looking at</h2>
+<p>The panel keeps a running score of how the call is going, a one-line coach
+verdict, and cards as things happen: a suggested answer when the other side
+asks something, a blocker when a deal-breaker comes up, action items as they're
+agreed. Blockers stay pinned until you mark them handled. If a card was wrong
+or already dealt with, dismiss it and it's gone.</p>
+
+<p>The "You 59%" number in the header is your share of the talking. If it
+creeps up too high, that's the app politely telling you to let the other
+person speak.</p>
+
+<h2>The pause button</h2>
+<p>Next to the status badge there's a pause button. While paused, nothing is
+sent anywhere and nothing is spent: no requests, no tokens, no quota. Parrot
+keeps listening locally so when you press play again the Copilot catches up
+with what it missed. Your cards stay exactly where they were. Good for private
+stretches, casual chats, or saving your free-tier allowance for the meeting
+that matters.</p>
+
+<h2>Controlling what it costs</h2>
+<p>Two settings in Settings → Copilot decide how much the Copilot spends,
+whether that's money or a free plan's rate limits:</p>
+<ul>
+  <li><strong>Pace</strong> is how often Parrot asks the model for advice.
+  Fast is the classic always-on feel. Balanced is a couple of requests per
+  minute. Relaxed is roughly one per minute, which fits free model tiers that
+  block you for asking too often. The honest tradeoff: on Relaxed, a tip can
+  arrive up to a minute late.</li>
+  <li><strong>Conversation sent per request</strong> is how much recent talk
+  each request carries: the last 2, 5, or 10 minutes. Smaller is cheaper and
+  faster, especially on local models. The Copilot doesn't forget the earlier
+  call either way, because its own cards ride along as memory.</li>
+</ul>
+
+<div class="tip"><strong>Free-tier recipe:</strong> Relaxed pace, Recent
+window, and use the pause button generously. That combination gets a whole
+meeting through most free plans.</div>
+
+</body>
+</html>

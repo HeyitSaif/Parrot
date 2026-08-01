@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="troubleshooting, mic muted, transcription stops, call starts, zoom, meet, safari, model loading, stuck, permission red, gibberish, wrong language, diagnostics, logs">
+<title>Troubleshooting</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>Troubleshooting</h1>
+
+<h2>Transcription of my side stops when I join a call</h2>
+<p>The classic. You start Parrot, everything works, then the moment you join
+the meeting your own words stop appearing. What's happening: some call apps
+(Safari-based meets are notorious) grab exclusive control of the microphone,
+and macOS starts feeding every other app pure silence without telling anyone.
+Parrot watches for exactly this. You'll see an orange
+<strong>"mic muted by another app"</strong> warning, and it retries every few
+seconds until it wins the mic back, usually the moment the call app lets go.
+The other side of the call records fine throughout. If your own words matter
+most, join the meeting first and start Parrot second.</p>
+
+<h2>"Loading WhisperKit model…" never finishes</h2>
+<p>A first-time model download can genuinely take minutes on slow internet,
+that's normal. But if it sits there forever with no progress, quit Parrot and
+open it again; a fresh start clears it in almost every case. If it keeps
+happening, pick the model again in Settings → Transcription.</p>
+
+<h2>The permission row stays red</h2>
+<p>Screen Recording permission only takes effect after a restart. Quit Parrot
+fully and reopen it. If it's still red, check System Settings → Privacy &amp;
+Security → Screen Recording actually lists Parrot with the toggle on.</p>
+
+<h2>Weird text in a language nobody spoke</h2>
+<p>Loud non-speech sounds (typing right next to the mic is the usual culprit)
+can make Whisper hallucinate a confident sentence, sometimes in a random
+language when auto-detect is on. Setting your language explicitly in
+Settings → Transcription helps a lot. Getting your keyboard out of the mic's
+face helps more. We're working on filtering these out automatically.</p>
+
+<h2>A recording got interrupted</h2>
+<p>Crash, force-quit, power loss: on the next launch Parrot finds the
+interrupted meeting and rescues whatever was already transcribed, then runs
+the normal report on it. Only a meeting that never captured a word is marked
+failed.</p>
+
+<h2>When you report a bug</h2>
+<p>Parrot can produce a diagnostic log that makes audio problems findable.
+Run the app with <code>PARROT_AUDIO_DEBUG=1</code>, reproduce the problem,
+then grab the log with:</p>
+<p><code>log show --last 10m --predicate 'subsystem == "com.uygar.parrot"'</code></p>
+<p>Attach that to a
+<a href="https://github.com/turantekin/Parrot/issues">GitHub issue</a> and
+you've just made someone's debugging day much easier.</p>
+
+</body>
+</html>

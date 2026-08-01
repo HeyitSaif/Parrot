@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="record, start recording, stop, quit, crash, recover, mic muted, another app, device, headphones">
+<title>Recording a call</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>Recording a call</h1>
+
+<p>Press the big red button on the dashboard (or use the menu bar icon) and
+Parrot starts recording two tracks at once: the system audio, which is
+everyone else on the call, and your microphone, which is you. Because the
+tracks are separate, the transcript already knows who said what.</p>
+
+<p>Pick a call profile before you start if you want the Copilot to behave a
+certain way, and optionally type a one-line brief like "call with the Westfield
+PM about AC replacement" so it has context from the first minute. Both are
+explained in <a href="profiles.html">Call profiles</a>.</p>
+
+<h2>While you're recording</h2>
+<p>The bar at the top shows your input and output devices and a live level
+meter for each track. If you switch AirPods mid-call or your Bluetooth
+headphones die, Parrot rebuilds the microphone connection on its own and keeps
+going.</p>
+
+<p>One warning is worth knowing about: if the text
+<strong>"mic muted by another app"</strong> appears in orange, it means your
+call app grabbed exclusive control of the microphone and macOS is feeding
+Parrot silence. Parrot keeps trying to reclaim it every few seconds and
+usually gets it back. The other side of the call keeps recording the whole
+time, so worst case you lose some of your own words, not the meeting. There's
+more on this in <a href="troubleshooting.html">Troubleshooting</a>.</p>
+
+<h2>Stopping</h2>
+<p>Hit Stop and Parrot finishes writing the last words, saves both audio
+files, and starts working on the report in the background. You can open the
+meeting straight away and watch it fill in.</p>
+
+<h2>Quitting mid-call is fine</h2>
+<p>If you quit Parrot while recording, it finishes the recording first and
+then quits. And if your Mac crashes or the app is force-quit mid-call, the
+next launch finds the interrupted meeting and rescues it: the transcript that
+was already written is kept, speakers are re-checked, and the report runs as
+usual. You lose nothing that was already said.</p>
+
+</body>
+</html>
