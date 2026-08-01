@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="settings, preferences, general, appearance, storage, recording, echo cancellation, transcription, model, language, vocabulary, backend, polish, api keys, saved">
+<title>Settings, page by page</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>Settings, page by page</h1>
+
+<p>Open Settings from the sidebar (or press <kbd>⌘,</kbd>). Topics are on the
+left, one page per topic. There's no Save button anywhere: every change is
+saved the moment you make it, and a small "Saved" chip confirms it.</p>
+
+<h2>General</h2>
+<p>Appearance (follow the system, or force light or dark), where your audio
+files live on disk with a "Show in Finder" button, and the version you're
+running with a "Check Now" for updates. Parrot checks GitHub for new releases
+once a day on its own and shows a banner when there's something new; it never
+nags mid-recording.</p>
+
+<h2>Recording</h2>
+<img src="img/settings-recording.png" alt="The Recording settings page">
+<p>One important toggle lives here: <strong>echo cancellation</strong>. If you
+take calls on speakers, keep it on; it subtracts the other person's voice from
+what your microphone hears, so their words don't get written down twice as
+yours. With headphones there's nothing to cancel and you can turn it off.</p>
+
+<h2>Transcription</h2>
+<img src="img/settings-transcription.png" alt="The Transcription settings page">
+<p>Everything about how speech becomes text:</p>
+<ul>
+  <li><strong>Model</strong>: which on-device Whisper does the work.
+  <code>base</code> is quick, <code>large-v3-turbo</code> is the accuracy
+  pick on Apple Silicon. Switching downloads the new model once.</li>
+  <li><strong>Language</strong>: auto-detect by default. If your calls are
+  always one language, set it; wrong-language surprises disappear.</li>
+  <li><strong>Custom vocabulary</strong>: your names and jargon, comma
+  separated, so they stop getting creatively misspelled. See
+  <a href="transcript.html">The live transcript</a>.</li>
+  <li><strong>Engine</strong>: on-device is the default and the private
+  choice. Groq and Deepgram are opt-in cloud engines that need your own keys
+  and do send audio out; Parrot falls back to on-device if they fail.</li>
+  <li><strong>Polish after call</strong>: optionally re-transcribe the saved
+  audio through Groq after you hit Stop, replacing the live transcript with a
+  slightly cleaner one before the report runs.</li>
+</ul>
+
+<h2>Copilot</h2>
+<img src="img/settings-copilot.png" alt="The Copilot settings page">
+<p>The on switch for the AI layer, the pace and conversation-window controls
+that decide what it costs, and which model powers the live cards and the
+reports (they can be different). This page has its own guide:
+<a href="copilot-setup.html">Setting up the Copilot</a> for the providers and
+<a href="copilot-live.html">The Copilot during a call</a> for the
+controls.</p>
+
+<h2>API Keys</h2>
+<p>Keys for Claude, Groq and Deepgram, one field each. They're stored in the
+macOS Keychain, not in a file, and never leave the machine except to talk to
+their own service. Paste, done.</p>
+
+<h2>Knowledge</h2>
+<p>The documents the Copilot may answer from, with per-profile tagging. Full
+story in <a href="knowledge.html">Knowledge base</a>.</p>
+
+<h2>Profiles</h2>
+<p>The deepest page, with its own guide:
+<a href="profiles.html">Call profiles</a>. This is where you shape what the
+Copilot watches for, card by card.</p>
+
+</body>
+</html>

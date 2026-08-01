@@ -40,6 +40,11 @@ struct SettingsView: View {
     /// fixed sane size.
     var isEmbedded = false
 
+    init(isEmbedded: Bool = false, initialSection: SettingsSection = .general) {
+        self.isEmbedded = isEmbedded
+        _section = State(initialValue: initialSection)
+    }
+
     @Environment(RecordingManager.self) private var recordingManager
     @AppStorage("whisperModel") private var selectedModel = "base"
     @AppStorage("appearance") private var appearance = Appearance.system

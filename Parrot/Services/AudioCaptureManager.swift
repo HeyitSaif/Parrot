@@ -169,6 +169,20 @@ final class AudioCaptureManager: NSObject {
     private let sampleRate: Double = 16000
     private let channels: UInt32 = 1
 
+    /// Dev-harness only (--help-shots): make the device bar look mid-call
+    /// without touching any real audio device.
+    @MainActor
+    func seedForSnapshot(input: String, output: String, micLevel: Float, systemLevel: Float) {
+        inputDeviceName = input
+        outputDeviceName = output
+        micActive = true
+        isCapturing = true
+        micEverHadSignal = true
+        lastMicSignalAt = Date()
+        self.micLevel = micLevel
+        audioLevel = systemLevel
+    }
+
     // MARK: - Start Capture
 
     /// @MainActor for the same reason as TranscriptionEngine.loadModel: these

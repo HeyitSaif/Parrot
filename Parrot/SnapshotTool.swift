@@ -48,6 +48,141 @@ enum TranscribeTest {
     }
 }
 
+/// Renders every screenshot the user guide needs, offscreen, into a directory:
+///   Parrot --help-shots docs/help/img
+/// Settings pages are Forms (scroll views), which ImageRenderer leaves empty —
+/// these render inside a real, never-shown NSWindow so AppKit does a full
+/// layout pass first.
+enum HelpShots {
+    @MainActor
+    static func run(outputDir: String) {
+        let dir = URL(fileURLWithPath: outputDir, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        // Shared world: in-memory store with the built-in profiles and a few
+        // meetings, plus managers that look mid-flight.
+        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self])
+        guard let container = try? ModelContainer(
+            for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
+        ) else { print("help-shots: container failed"); exit(1) }
+        let context = container.mainContext
+
+        let rm = RecordingManager()
+        rm.profileStore.seedAndMigrateIfNeeded(context: context, knowledgeBase: rm.knowledgeBase)
+        UserDefaults.standard.register(defaults: [
+            "copilotEnabled": true,
+            "copilotProvider": "claude",
+            "whisperModel": "large-v3-turbo",
+        ])
+
+        // A live-looking meeting for the call screen.
+        let meeting = Meeting(title: "Demo call with Acme")
+        context.insert(meeting)
+        let lines: [(TimeInterval, String, String)] = [
+            (62, "Them", "So how would the migration from our current tool work in practice?"),
+            (66, "Them", "We have about two years of call history in there."),
+            (71, "Me", "We handle the full export and import for you, archive included."),
+            (76, "Me", "Usually that's done within a week."),
+            (81, "Them", "Okay. And what does the annual plan cost for a team of ten?"),
+        ]
+        for (start, speaker, text) in lines {
+            let seg = TranscriptSegment(startTime: start, endTime: start + 4,
+                                        text: text, speakerLabel: speaker, confidence: nil)
+            context.insert(seg)
+            seg.meeting = meeting
+        }
+        try? context.save()
+        rm.seedForSnapshot(meeting: meeting, elapsed: 85, modelContext: context)
+        rm.audioCaptureManager.seedForSnapshot(
+            input: "MacBook Pro Microphone", output: "MacBook Pro Speakers",
+            micLevel: 0.03, systemLevel: 0.12)
+
+        let salesProfile = (try? context.fetch(FetchDescriptor<CallProfile>()))?
+            .first { $0.name == "Sales discovery" }
+        rm.callAnalysisEngine.seedForSnapshot(
+            profile: salesProfile,
+            insights: [
+                Insight(kindKey: "unanswered_question",
+                        title: "Annual pricing for 10 seats still open",
+                        detail: "They asked what the annual plan costs for ten people and haven't had an answer yet.",
+                        callTime: 81, source: "Them",
+                        reply: "For ten seats the annual plan is $79 per seat per month, billed yearly."),
+                Insight(kindKey: "buying_signal",
+                        title: "Asking about migration logistics",
+                        detail: "Questions about moving two years of history over usually mean they're picturing the switch.",
+                        callTime: 66, source: "Them", reply: nil),
+            ],
+            sentiment: ["score": 72, "buying_temperature": 65],
+            read: "engaged", coach: "Going well — answer the pricing question, then ask who signs off.",
+            meCharacters: 620, themCharacters: 780)
+
+        func settings(_ section: SettingsSection) -> some View {
+            SettingsView(isEmbedded: false, initialSection: section)
+                .environment(rm)
+                .environment(rm.profileStore)
+                .environment(AppSession())
+                .modelContainer(container)
+        }
+
+        var made: [String] = []
+        func shot(_ name: String, size: NSSize, _ view: some View) {
+            let path = dir.appendingPathComponent(name).path
+            if windowRender(view, size: size, to: path) { made.append(name) }
+            else { print("help-shots: FAILED \(name)") }
+        }
+
+        shot("settings-general.png", size: .init(width: 780, height: 540), settings(.general))
+        shot("settings-recording.png", size: .init(width: 780, height: 540), settings(.recording))
+        shot("settings-transcription.png", size: .init(width: 780, height: 620), settings(.transcription))
+        shot("settings-copilot.png", size: .init(width: 780, height: 700), settings(.copilot))
+        shot("settings-knowledge.png", size: .init(width: 780, height: 540), settings(.knowledge))
+
+        shot("settings-profiles.png", size: .init(width: 860, height: 640),
+             ProfilesSettingsView()
+                .environment(rm).environment(rm.profileStore).environment(AppSession())
+                .modelContainer(container))
+        // Tall on purpose: the Advanced kinds/gauges editors live far down the
+        // form, and the window's viewport is what gets captured.
+        shot("profiles-advanced.png", size: .init(width: 860, height: 2450),
+             ProfilesSettingsView(advancedInitiallyOpen: true)
+                .environment(rm).environment(rm.profileStore).environment(AppSession())
+                .modelContainer(container))
+
+        shot("live-screen.png", size: .init(width: 1160, height: 720),
+             LiveRecordingView()
+                .environment(rm).environment(rm.profileStore).environment(AppSession())
+                .modelContainer(container))
+
+        shot("dashboard.png", size: .init(width: 1000, height: 620),
+             DashboardView(selectedMeeting: .constant(nil), showDashboard: .constant(true))
+                .environment(rm).environment(rm.profileStore).environment(AppSession())
+                .modelContainer(container))
+
+        print("help-shots: wrote \(made.count) → \(dir.path)")
+        exit(made.count >= 9 ? 0 : 1)
+    }
+
+    /// Real-window offscreen render: lay out, pump the runloop so SwiftUI
+    /// settles (Forms, Lists, async images), then cache the bitmap.
+    @MainActor
+    private static func windowRender(_ view: some View, size: NSSize, to path: String) -> Bool {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.colorSpace = .sRGB
+        window.appearance = NSAppearance(named: .aqua)
+        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
+        host.frame = NSRect(origin: .zero, size: size)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return false }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: URL(fileURLWithPath: path))) != nil
+    }
+}
+
 /// Drives the LIVE transcription loop (segmenter + decode + filters) end to
 /// end from an audio file, the way capture feeds it. Run with:
 ///   Parrot --liveloop-test /path/audio.aiff [model]
