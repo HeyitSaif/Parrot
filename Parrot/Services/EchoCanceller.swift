@@ -34,6 +34,14 @@ final class EchoCanceller {
 
     var isActive: Bool { echoState != nil }
 
+    /// Unconsumed far-end reference samples waiting to be paired with mic frames.
+    /// Diagnostic only: a backlog that keeps growing means the mic stopped
+    /// consuming (dead tap) while system audio kept arriving.
+    var referenceBacklog: Int {
+        lock.lock(); defer { lock.unlock() }
+        return reference.count - referenceHead
+    }
+
     init() {
         echoState = speex_echo_state_init(Int32(frameSize), Int32(filterTail))
         var rate = sampleRate
