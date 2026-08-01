@@ -2,6 +2,7 @@ import AVFoundation
 import ScreenCaptureKit
 import CoreAudio
 import Combine
+import os
 
 /// Captures system audio via ScreenCaptureKit and microphone via AVAudioEngine.
 /// Provides mixed PCM audio for transcription and saves separate tracks to disk.
@@ -45,6 +46,11 @@ final class AudioCaptureManager: NSObject {
     @ObservationIgnored private var dbgMic = DebugAccumulator(label: "mic")
     @ObservationIgnored private var dbgSck = DebugAccumulator(label: "sck")
 
+    /// Capture events and AUDIODBG lines go through os_log with explicit public
+    /// privacy: NSLog from the sandboxed app is redacted to "<private>" in
+    /// `log show`, which silently made the field diagnostics uncollectable.
+    static let oslog = Logger(subsystem: "com.uygar.parrot", category: "capture")
+
     /// Accumulates levels between 5 s log flushes. Each instance is only touched
     /// from its own stream's callback thread.
     struct DebugAccumulator {
@@ -67,13 +73,53 @@ final class AudioCaptureManager: NSObject {
             let cleanAvg = cleanN > 0 ? cleanSum / Float(cleanN) : 0
             let cleanPart = clean != nil ? String(format: " clean=%.5f", cleanAvg) : ""
             let refPart = refBacklog.map { " refq=\($0)" } ?? ""
-            NSLog("Parrot AUDIODBG %@ raw=%.5f%@ bufs=%d zerobufs=%d%@%@",
-                  label, rawAvg, cleanPart, buffers, zeroBuffers, refPart, extra)
+            let line = String(format: "AUDIODBG %@ raw=%.5f%@ bufs=%d zerobufs=%d%@%@",
+                              label, rawAvg, cleanPart, buffers, zeroBuffers, refPart, extra)
+            AudioCaptureManager.oslog.log("\(line, privacy: .public)")
             rawSum = 0; rawN = 0; cleanSum = 0; cleanN = 0
             buffers = 0; zeroBuffers = 0
             lastFlush = now
         }
     }
+
+    /// Detects the OS silently cutting the mic feed (issue #12): a call app that
+    /// grabs the microphone (Safari/Zoom voice processing) makes CoreAudio deliver
+    /// exact digital zeros to every other client — the engine keeps running and no
+    /// configuration-change notification fires, so the samples are the only tell.
+    /// A real mic in a silent room still carries dither noise; a sustained run of
+    /// *exact* zeros is always artificial. Pure logic so --profile-test can drive
+    /// it with a fake clock.
+    struct MicSignalWatchdog {
+        enum Verdict: Equatable { case ok, lost, stillLost, recovered }
+        /// Long enough to skip transient device glitches, short enough that the
+        /// warning appears before the user wonders where their words went.
+        static let lostAfter: TimeInterval = 2
+        private var zeroRunStartedAt: Date?
+        private(set) var isLost = false
+
+        mutating func observe(meanAbs: Float, at now: Date) -> Verdict {
+            guard meanAbs == 0 else {
+                zeroRunStartedAt = nil
+                if isLost { isLost = false; return .recovered }
+                return .ok
+            }
+            let start = zeroRunStartedAt ?? now
+            zeroRunStartedAt = start
+            if isLost { return .stillLost }
+            guard now.timeIntervalSince(start) >= Self.lostAfter else { return .ok }
+            isLost = true
+            return .lost
+        }
+    }
+
+    /// True while the OS is delivering exact digital zeros on the mic — another
+    /// app (typically a call) holds the microphone. Drives the device-bar warning
+    /// and the periodic reclaim attempts. Issue #12.
+    private(set) var micSignalLost = false
+    /// Tap-callback thread only, like the debug accumulators.
+    @ObservationIgnored private var micWatchdog = MicSignalWatchdog()
+    /// Main thread only — collapses the per-buffer verdicts into one pending retry.
+    @ObservationIgnored private var micRecoveryScheduled = false
 
     private(set) var isCapturing = false
     private(set) var systemAudioURL: URL?
@@ -141,6 +187,11 @@ final class AudioCaptureManager: NSObject {
         let aecEnabled = UserDefaults.standard.object(forKey: "echoCancellationEnabled") as? Bool ?? true
         echoCanceller = aecEnabled ? EchoCanceller() : nil
 
+        // Reset the mic watchdog before any tap can fire.
+        micWatchdog = MicSignalWatchdog()
+        micSignalLost = false
+        micRecoveryScheduled = false
+
         filesClosed = false  // fresh URLs above; queues are idle, so no race
 
         try await startSystemAudioCapture()
@@ -169,6 +220,7 @@ final class AudioCaptureManager: NSObject {
         isCapturing = false
         micActive = false
         micEverHadSignal = false
+        micSignalLost = false
         audioLevel = 0
         micLevel = 0
         echoCanceller = nil
@@ -306,6 +358,10 @@ final class AudioCaptureManager: NSObject {
                 // off, this returns the mic unchanged. With it on, it returns cleaned
                 // 10 ms frames (possibly empty until a frame fills) — fail-safe.
                 let micFloats = Self.floats(from: convertedBuffer)
+                // Watch the RAW mic, pre-AEC: the canceller legitimately emits
+                // empty/quiet frames, but only the OS produces exact zeros.
+                let verdict = self.micWatchdog.observe(meanAbs: Self.meanAbs(micFloats), at: Date())
+                if verdict != .ok { self.handleMicWatchdog(verdict) }
                 let cleaned = self.echoCanceller?.process(mic: micFloats) ?? micFloats
                 if Self.audioDebugEnabled {
                     self.dbgMic.add(
@@ -370,6 +426,45 @@ final class AudioCaptureManager: NSObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 self?.restartMicCapture(attempt: attempt + 1)
             }
+        }
+    }
+
+    /// Tap thread → main. Flips the observable flag and, while the mic stays
+    /// zeroed, periodically rebuilds the input engine: if the app that held the
+    /// mic is gone, the rebuild reclaims it instantly; if not, the fresh tap
+    /// keeps reporting zeros and we simply try again. Either way the state is
+    /// visible instead of the recording dying in silence.
+    private func handleMicWatchdog(_ verdict: MicSignalWatchdog.Verdict) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            switch verdict {
+            case .lost:
+                self.micSignalLost = true
+                Self.oslog.warning("mic feed went to digital zeros — another app likely holds the microphone")
+                self.scheduleMicReclaim()
+            case .stillLost:
+                self.scheduleMicReclaim()
+            case .recovered:
+                self.micSignalLost = false
+                Self.oslog.log("mic feed recovered")
+            case .ok:
+                break
+            }
+        }
+    }
+
+    /// Main thread. One pending reclaim at a time, 4 s apart — a rebuild is
+    /// cheap but not free, and the common case (call app still holds the mic)
+    /// needs patience, not a tight loop.
+    private func scheduleMicReclaim() {
+        guard !micRecoveryScheduled, isCapturing, micSignalLost else { return }
+        micRecoveryScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self else { return }
+            self.micRecoveryScheduled = false
+            guard self.isCapturing, self.micSignalLost else { return }
+            Self.oslog.log("mic still zeroed — rebuilding the input engine to try to reclaim it")
+            self.restartMicCapture()
         }
     }
 
