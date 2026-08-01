@@ -368,6 +368,11 @@ final class TranscriptionEngine {
         transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
 
+            // Rolling-preview throttle, per source. ponytail: 1.5s cadence —
+            // lower feels livelier but re-decodes long utterances more often.
+            let previewEvery: TimeInterval = 1.5
+            var lastPreview: [AudioSource: Date] = [:]
+
             while !Task.isCancelled {
                 // isTranscribing == false flips the loop into drain mode: keep
                 // consuming the backlog (whole utterances, down to the final
@@ -396,7 +401,50 @@ final class TranscriptionEngine {
                         self.consumedSamples[source] = start + consumed
                         return (taken, start + cut.dropLeading, self.localClockOffset[source] ?? 0)
                     }
-                    guard !chunk.isEmpty else { continue }
+                    guard !chunk.isEmpty else {
+                        // Rolling preview — the "text feels slower since
+                        // segmentation" fix (2026-08-01 dogfood): while an
+                        // utterance is still accumulating, decode what's
+                        // buffered into the typing bubble so words appear WHILE
+                        // the user talks. Committed segments still land only at
+                        // the cut; the buffer is never consumed here. Local
+                        // backend only (cloud chunk users keep the dots).
+                        // ponytail: a preview of source A delays a pending cut
+                        // of source B by one decode; parallelize if dual-speech
+                        // latency reports come in.
+                        if backend == .local, !draining,
+                           Date().timeIntervalSince(lastPreview[source] ?? .distantPast) >= previewEvery {
+                            let pending: [Float] = self.bufferLock.withLock {
+                                let buffered = self.audioBuffers[source] ?? []
+                                return buffered.count >= Segmenter.minSpeechSamples ? buffered : []
+                            }
+                            let energy = pending.isEmpty ? 0
+                                : pending.reduce(into: Float(0)) { $0 += abs($1) } / Float(pending.count)
+                            if energy > Segmenter.silenceFloor, let whisperKit = self.whisperKit {
+                                lastPreview[source] = Date()
+                                let interim: TranscriptionCallback = { [weak self] progress in
+                                    let raw = Self.cleaned(progress.text)
+                                    // Interims flash the glossary echo too — strip
+                                    // it for display like everywhere else.
+                                    let partial = (self?.glossaryActive == true)
+                                        ? (Self.strippingGlossaryEcho(raw) ?? "") : raw
+                                    if !partial.isEmpty {
+                                        Task { @MainActor in self?.currentText = partial }
+                                    }
+                                    return nil
+                                }
+                                let result = (try? await whisperKit.transcribe(
+                                    audioArray: pending, decodeOptions: decodeOptions, callback: interim)) ?? []
+                                let raw = Self.cleaned(result.map(\.text).joined(separator: " "))
+                                let display = self.glossaryActive ? (Self.strippingGlossaryEcho(raw) ?? "") : raw
+                                if !display.isEmpty {
+                                    if Self.loopTrace { print("TRACE \(source.label) preview: \(display)") }
+                                    await MainActor.run { self.currentText = display }
+                                }
+                            }
+                        }
+                        continue
+                    }
                     didWork = true
 
                     let startTime = Double(startSample) / 16000.0 + clockOffset
@@ -415,7 +463,11 @@ final class TranscriptionEngine {
                         // Stream interim words to the live view as they decode; strip
                         // any stray special/timestamp tokens defensively.
                         let interimCallback: TranscriptionCallback = { [weak self] progress in
-                            let partial = Self.cleaned(progress.text)
+                            let raw = Self.cleaned(progress.text)
+                            // Same glossary-echo strip as the preview path — the
+                            // live line used to flash "Glossary: …" during quiet.
+                            let partial = (self?.glossaryActive == true)
+                                ? (Self.strippingGlossaryEcho(raw) ?? "") : raw
                             if !partial.isEmpty {
                                 Task { @MainActor in self?.currentText = partial }
                             }
