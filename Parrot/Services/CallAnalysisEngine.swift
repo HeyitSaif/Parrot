@@ -1,6 +1,78 @@
 import Foundation
 import Observation
 
+/// How eagerly the copilot calls the model. One knob instead of four raw
+/// timers: Fast is the original always-on behavior; Relaxed spaces requests
+/// out to roughly one per minute so free-tier rate limits survive a whole
+/// meeting. Persisted in UserDefaults ("copilotPace"), read live so a
+/// mid-call settings change applies immediately.
+enum CopilotPace: String, CaseIterable, Identifiable {
+    case fast, balanced, relaxed
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .fast: "Fast"
+        case .balanced: "Balanced"
+        case .relaxed: "Relaxed"
+        }
+    }
+
+    /// Plain-words tradeoff, shown under the Settings picker.
+    var caption: String {
+        switch self {
+        case .fast: "Tips arrive within seconds. Most requests, highest cost."
+        case .balanced: "A couple of requests per minute."
+        case .relaxed: "Fewest requests — fits free-model limits. Tips can arrive up to a minute late."
+        }
+    }
+
+    /// (question fast-track, idle debounce, floor between calls, staleness cap).
+    /// Fast MUST stay identical to the original constants — untouched users
+    /// get untouched behavior. The other rows are first guesses; tune here.
+    var timing: (question: TimeInterval, idle: TimeInterval, floor: TimeInterval, staleness: TimeInterval) {
+        switch self {
+        case .fast: (1, 8, 5, 15)
+        case .balanced: (3, 15, 20, 45)
+        case .relaxed: (10, 30, 60, 120)
+        }
+    }
+
+    static var selected: CopilotPace {
+        CopilotPace(rawValue: UserDefaults.standard.string(forKey: "copilotPace") ?? "") ?? .fast
+    }
+}
+
+/// How much recent conversation each live request carries. Cards are always
+/// sent and act as the call's long-term memory, so old transcript text mostly
+/// adds cost and latency, not insight. Persisted as "copilotWindow".
+enum CopilotWindow: String, CaseIterable, Identifiable {
+    case recent, standard, long
+
+    var id: String { rawValue }
+
+    var minutes: Int {
+        switch self {
+        case .recent: 2
+        case .standard: 5
+        case .long: 10
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .recent: "Recent — last 2 minutes"
+        case .standard: "Standard — last 5 minutes"
+        case .long: "Long — last 10 minutes"
+        }
+    }
+
+    static var selected: CopilotWindow {
+        CopilotWindow(rawValue: UserDefaults.standard.string(forKey: "copilotWindow") ?? "") ?? .standard
+    }
+}
+
 /// Always-on copilot loop: watches the live transcript for the whole call and pushes
 /// insights (suggested answers, blockers, action items) as the conversation unfolds.
 ///
@@ -14,6 +86,7 @@ final class CallAnalysisEngine {
         case off
         case listening
         case analyzing
+        case paused
         case needsAPIKey
         case error(String)
     }
@@ -46,15 +119,15 @@ final class CallAnalysisEngine {
     private var rerunRequested = false
     private var oldestPendingSince: Date?
 
-    /// Wait this long after the latest segment before analyzing mid-flow speech.
-    private let idleDebounce: TimeInterval = 8
-    /// Detected questions only wait for the current transcription chunk to settle.
-    private let questionDebounce: TimeInterval = 1
-    /// Hard floor between two API calls so back-to-back triggers don't spam.
-    private let minimumInterval: TimeInterval = 5
-    /// During continuous speech every segment resets the idle debounce, which would
-    /// starve analysis forever — never let unanalyzed speech wait longer than this.
-    private let maximumStaleness: TimeInterval = 15
+    /// Timing now comes from the user's pace choice (Settings → Copilot).
+    /// Roles unchanged: idle = wait after the latest mid-flow segment,
+    /// question = fast-track for the other side's questions, floor = hard
+    /// minimum between two API calls, staleness = never let unanalyzed speech
+    /// wait longer than this even during continuous talk.
+    private var idleDebounce: TimeInterval { CopilotPace.selected.timing.idle }
+    private var questionDebounce: TimeInterval { CopilotPace.selected.timing.question }
+    private var minimumInterval: TimeInterval { CopilotPace.selected.timing.floor }
+    private var maximumStaleness: TimeInterval { CopilotPace.selected.timing.staleness }
 
     init(provider: AnalysisProvider = ClaudeAnalysisProvider()) {
         self.provider = provider
@@ -74,6 +147,7 @@ final class CallAnalysisEngine {
         lastAnalyzedCount = 0
         rerunRequested = false
         oldestPendingSince = nil
+        isPaused = false
         meCharacters = 0
         themCharacters = 0
         sentiment = [:]; sentimentRead = nil; coachLine = nil
@@ -90,6 +164,30 @@ final class CallAnalysisEngine {
         analysisTask?.cancel()
         analysisTask = nil
         status = .off
+    }
+
+    /// Mid-call switch, distinct from stop()/start(): cards, counters, and the
+    /// collected transcript all survive. While paused, speech keeps
+    /// accumulating (so the model has context on resume) but nothing is
+    /// scheduled and nothing is sent. Resume analyzes the backlog promptly —
+    /// still behind the pace floor, so it can't burst.
+    private(set) var isPaused = false
+
+    func setPaused(_ paused: Bool) {
+        guard isActive, paused != isPaused else { return }
+        isPaused = paused
+        if paused {
+            debounceTask?.cancel()
+            debounceTask = nil
+            oldestPendingSince = nil  // paused time must not count as staleness
+            status = .paused
+        } else {
+            status = provider.isConfigured ? .listening : .needsAPIKey
+            if segments.count > lastAnalyzedCount {
+                oldestPendingSince = .now
+                triggerAnalysis()
+            }
+        }
     }
 
     /// Share of the conversation spoken by the user, once there's enough signal.
@@ -112,6 +210,11 @@ final class CallAnalysisEngine {
         case .me: meCharacters += text.count
         case .them: themCharacters += text.count
         }
+
+        // Paused: collect context, schedule nothing. setPaused(false) picks
+        // the backlog up.
+        guard !isPaused else { return }
+
         if oldestPendingSince == nil {
             oldestPendingSince = .now
         }
@@ -136,7 +239,9 @@ final class CallAnalysisEngine {
     // MARK: - Analysis
 
     private func triggerAnalysis() {
-        guard isActive, segments.count > lastAnalyzedCount else { return }
+        // The pause guard also covers the rerun path out of runAnalysis: a
+        // rerun queued before pausing must not fire during the pause.
+        guard isActive, !isPaused, segments.count > lastAnalyzedCount else { return }
 
         // One call in flight at a time; queue a rerun so new context isn't dropped.
         if analysisTask != nil {
@@ -182,8 +287,13 @@ final class CallAnalysisEngine {
         lastAnalyzedCount = segments.count
         oldestPendingSince = nil
 
-        // Last ~2 minutes of context keeps calls fast and cheap.
-        let window = segments.suffix(60)
+        // Time-based context window (Settings → Copilot). The old fixed
+        // "last 60 lines" quietly grew when segmentation made lines
+        // utterance-sized; minutes are the unit that stays honest.
+        let take = Self.windowSuffixCount(
+            times: segments.map(\.time),
+            seconds: TimeInterval(CopilotWindow.selected.minutes * 60))
+        let window = segments.suffix(take)
         let transcript = window
             .map { "\($0.source.label): \($0.text)" }
             .joined(separator: "\n")
@@ -326,6 +436,27 @@ final class CallAnalysisEngine {
     }
 
     // MARK: - Heuristics
+
+    /// How many trailing segments fall inside the live context window: every
+    /// segment within `seconds` of the newest one, floored at `minCount` so a
+    /// quiet call still sends something, capped at `maxCount` so a dense
+    /// window can't balloon the payload. Pure so --profile-test drives it.
+    /// Times are call-relative and appended in arrival order; the reverse scan
+    /// stops at the first out-of-window segment, so a slightly out-of-order
+    /// mic/system boundary line costs at most one segment either way.
+    nonisolated static func windowSuffixCount(
+        times: [TimeInterval], seconds: TimeInterval,
+        minCount: Int = 10, maxCount: Int = 200
+    ) -> Int {
+        guard let newest = times.last else { return 0 }
+        let cutoff = newest - seconds
+        var count = 0
+        for t in times.reversed() {
+            guard t >= cutoff else { break }
+            count += 1
+        }
+        return min(max(count, min(minCount, times.count)), maxCount)
+    }
 
     /// Whether a model's "supersedes" claim holds up: the cited title must be a
     /// real open card, and the two texts must share at least one topic stem.

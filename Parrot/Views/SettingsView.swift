@@ -45,6 +45,8 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearance = Appearance.system
     @AppStorage("copilotEnabled") private var copilotEnabled = false
     @AppStorage("copilotProvider") private var copilotProvider = CopilotProviderKind.claude.rawValue
+    @AppStorage("copilotPace") private var copilotPace = CopilotPace.fast.rawValue
+    @AppStorage("copilotWindow") private var copilotWindow = CopilotWindow.standard.rawValue
     /// "" = same backend as live cards.
     @AppStorage("reportsProvider") private var reportsProvider = ""
     @AppStorage("copilotOllamaModel") private var copilotOllamaModel = "llama3.2:3b"
@@ -70,7 +72,8 @@ struct SettingsView: View {
     /// a single onChange instead of one per field.
     private var settingsFingerprint: String {
         "\(selectedModel)|\(appearance)|\(copilotEnabled)|\(transcriptionLanguage)|"
-            + "\(customVocabulary)|\(echoCancellation)|\(transcriptionBackend)|\(polishAfterCall)"
+            + "\(customVocabulary)|\(echoCancellation)|\(transcriptionBackend)|\(polishAfterCall)|"
+            + "\(copilotPace)|\(copilotWindow)"
     }
 
     private func flashSavedToast() {
@@ -310,6 +313,27 @@ struct SettingsView: View {
                         .buttonStyle(.link)
                         .font(Theme.Typography.secondary)
                 }
+            }
+
+            // What each call costs, in the user's hands: how often the model is
+            // asked, and how much conversation each request carries. Both apply
+            // live, mid-call. Fast + Standard = the original behavior.
+            Section("Pace") {
+                Picker("How often Copilot asks the model", selection: $copilotPace) {
+                    ForEach(CopilotPace.allCases) { pace in
+                        Text(pace.label).tag(pace.rawValue)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Hint((CopilotPace(rawValue: copilotPace) ?? .fast).caption)
+
+                Picker("Conversation sent per request", selection: $copilotWindow) {
+                    ForEach(CopilotWindow.allCases) { window in
+                        Text(window.label).tag(window.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                Hint("Only recent talk is sent — insight cards always go along, so Copilot still remembers the whole call. Smaller is cheaper and faster, especially on free or local models.")
             }
 
             Section("Model") {
