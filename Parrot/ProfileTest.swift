@@ -34,6 +34,7 @@ enum ProfileTest {
         testMicWatchdog()
         testModelFolderMatch()
         testSegmenter()
+        testCopilotBudget()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -428,6 +429,54 @@ enum ProfileTest {
         let two = speech(5) + silence(Seg.pauseFrames) + speech(5) + silence(Seg.pauseFrames)
         check("seg cuts one utterance at a time",
               Seg.nextCut(in: two, draining: false) == .init(dropLeading: 0, take: (5 + Seg.padFrames) * Seg.frame))
+    }
+
+    // The #20 budget controls: pace presets, the live context window, pause.
+    @MainActor
+    static func testCopilotBudget() {
+        // Fast must be the original constants exactly — the default changes nothing.
+        let fast = CopilotPace.fast.timing
+        check("pace fast is the original timing",
+              fast.question == 1 && fast.idle == 8 && fast.floor == 5 && fast.staleness == 15)
+        // Every slower pace waits at least as long on every timer.
+        for (quicker, slower) in [(CopilotPace.fast, CopilotPace.balanced), (.balanced, .relaxed)] {
+            let a = quicker.timing, b = slower.timing
+            check("pace \(slower.rawValue) never faster than \(quicker.rawValue)",
+                  b.question >= a.question && b.idle >= a.idle
+                    && b.floor >= a.floor && b.staleness >= a.staleness)
+        }
+        check("pace unknown value has no case", CopilotPace(rawValue: "turbo") == nil)
+        check("window standard is 5 minutes", CopilotWindow.standard.minutes == 5)
+
+        // Window math: recent kept, old excluded, floor and cap honored.
+        typealias E = CallAnalysisEngine
+        let times: [TimeInterval] = (0..<40).map { TimeInterval($0) * 10 }  // 0,10,…,390
+        check("window empty transcript sends nothing", E.windowSuffixCount(times: [], seconds: 120) == 0)
+        check("window keeps only recent segments",
+              E.windowSuffixCount(times: times, seconds: 120) == 13)  // 270…390
+        check("window floor lifts a quiet call",
+              E.windowSuffixCount(times: times, seconds: 5, minCount: 10) == 10)
+        check("window floor capped at what exists",
+              E.windowSuffixCount(times: [0, 5], seconds: 1, minCount: 10) == 2)
+        check("window cap bounds a dense stretch",
+              E.windowSuffixCount(times: times, seconds: 1000, maxCount: 20) == 20)
+
+        // Pause: only valid mid-session, cards survive a pause/resume cycle.
+        let engine = CallAnalysisEngine()
+        engine.setPaused(true)
+        check("pause before start is ignored", !engine.isPaused)
+        engine.seedForSnapshot(
+            profile: nil,
+            insights: [Insight(kindKey: "blocker", title: "t", detail: "d", callTime: 0, source: nil)],
+            sentiment: [:], read: nil, meCharacters: 0, themCharacters: 0)
+        engine.setPaused(true)
+        check("pause flips status", engine.isPaused && engine.status == .paused)
+        check("pause keeps cards", engine.insights.count == 1)
+        engine.setPaused(false)
+        // Not asserting the exact resumed status: it depends on whether a key
+        // is configured on the machine running the harness.
+        check("resume leaves the paused state", !engine.isPaused && engine.status != .paused)
+        check("resume keeps cards", engine.insights.count == 1)
     }
 
     static func testStableHash() {

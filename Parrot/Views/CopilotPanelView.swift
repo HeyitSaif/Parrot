@@ -80,6 +80,20 @@ struct CopilotPanelView: View {
                     .help("Your share of the conversation so far")
             }
 
+            if engine.isActive {
+                Button {
+                    engine.setPaused(!engine.isPaused)
+                } label: {
+                    Image(systemName: engine.isPaused ? "play.circle" : "pause.circle")
+                        .font(.appCallout)
+                        .foregroundStyle(Theme.Colors.ink2)
+                }
+                .buttonStyle(.plain)
+                .help(engine.isPaused
+                    ? "Resume Copilot"
+                    : "Pause Copilot — nothing is sent and nothing is spent while paused")
+            }
+
             statusBadge
         }
         .padding(.horizontal, Theme.Metrics.pad)
@@ -98,6 +112,11 @@ struct CopilotPanelView: View {
             HStack(spacing: 5) {
                 ProgressView().controlSize(.mini)
                 Text("Thinking…").font(.appCaption).foregroundStyle(Theme.Colors.ink2)
+            }
+        case .paused:
+            HStack(spacing: 5) {
+                Circle().fill(Theme.Colors.ink3).frame(width: 7, height: 7)
+                Text("Paused").font(.appCaption).foregroundStyle(Theme.Colors.ink2)
             }
         case .error:
             Image(systemName: "exclamationmark.triangle.fill")
@@ -219,7 +238,9 @@ struct CopilotPanelView: View {
             Image(systemName: "ear.badge.waveform")
                 .font(.appTitle2)
                 .foregroundStyle(Theme.Colors.ink3)
-            Text("Listening to the call.\nSuggestions, blockers and action items will appear here as the conversation unfolds.")
+            Text(engine.isPaused
+                ? "Copilot is paused.\nNothing is sent while paused — press play to get suggestions again."
+                : "Listening to the call.\nSuggestions, blockers and action items will appear here as the conversation unfolds.")
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.Colors.ink3)
                 .multilineTextAlignment(.center)
