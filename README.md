@@ -217,7 +217,7 @@ No formal process. No templates. Just open an issue or PR and we'll figure it ou
 
 ## Known Issues (I'm Working on It)
 
-- **Transcription can stop the moment you join a call** ([#12](https://github.com/turantekin/Parrot/issues/12)) — reported with Safari + Google Meet: macOS starts delivering pure silence to Parrot's mic tap while the call app holds the microphone. Under active investigation — the app ships opt-in diagnostics for it (`PARROT_AUDIO_DEBUG=1`), and logs from a failing call are gold.
+- **Transcription could stop the moment you joined a call** ([#12](https://github.com/turantekin/Parrot/issues/12)) — fixed in 0.11.3: when another app grabs the mic and macOS feeds Parrot silence, Parrot now detects it, shows *"mic muted by another app — reclaiming"*, retries automatically, and recovers when the mic frees up. Kept here until the original reporter confirms the fix in the wild — if you still hit it, `PARROT_AUDIO_DEBUG=1` logs from a failing call are gold.
 - **Screen Recording permission resets on ad-hoc source builds** — macOS ties the grant to the signing identity, and identity-less builds look like a new app every time. `make signing-help` shows two free ways to make it stick. Downloaded release builds keep the grant across updates.
 - **WhisperKit model download needs internet** — Only on first run. After that, everything is offline.
 - **Speaker diarization is... okay** — "Me" vs "Them" is exact (separate audio tracks), but splitting multiple far-side voices apart is energy-based and imperfect, especially with 3+ people on the other end. Real voice fingerprinting is on my list.
