@@ -408,6 +408,28 @@ final class RecordingManager {
         // segment can arrive.
         guard let modelContext, let meeting = currentMeeting else { return }
 
+        // Speaker bleed: without headphones the mic hears the speakers, the
+        // AEC attenuates but can't always erase it, and the residual decodes —
+        // the same sentence then lands twice, "Them" from system audio and
+        // "Me" from the mic (and inflates diarization/talk-ratio). The system
+        // copy is authoritative for anything both streams heard, so a Me
+        // segment that near-duplicates a Them segment within a beat is echo,
+        // whichever order they decoded in. (Surfaced by the speakers-playback
+        // live test 2026-08-01; previously masked by the glossary decode bug.)
+        let bleedWindow: TimeInterval = 2.5
+        let neighbors = meeting.segments.filter { abs($0.startTime - result.startTime) <= bleedWindow }
+        if result.source == .me,
+           neighbors.contains(where: { $0.speakerLabel == AudioSource.them.label
+               && Self.isEchoDuplicate($0.text, result.text) }) {
+            return
+        }
+        if result.source == .them {
+            for stored in neighbors where stored.speakerLabel == AudioSource.me.label
+                && Self.isEchoDuplicate(stored.text, result.text) {
+                modelContext.delete(stored)
+            }
+        }
+
         let segment = TranscriptSegment(
             startTime: result.startTime,
             endTime: result.endTime,
@@ -419,6 +441,21 @@ final class RecordingManager {
         modelContext.insert(segment)
         segment.meeting = meeting
         try? modelContext.save()
+    }
+
+    /// Near-verbatim match for the echo-dedup above: Whisper decodes the bleed
+    /// with small variances ("I am" vs "I'm"), so exact equality is too strict.
+    /// High token overlap + the tight time window keeps a human genuinely
+    /// echoing the other side (rare inside 2.5s) from being eaten.
+    nonisolated static func isEchoDuplicate(_ a: String, _ b: String) -> Bool {
+        func tokens(_ s: String) -> Set<String> {
+            Set(s.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count > 1 })
+        }
+        let ta = tokens(a), tb = tokens(b)
+        guard !ta.isEmpty, !tb.isEmpty else { return false }
+        return Double(ta.intersection(tb).count) / Double(min(ta.count, tb.count)) >= 0.8
     }
 
     // MARK: - Post-Call Summary

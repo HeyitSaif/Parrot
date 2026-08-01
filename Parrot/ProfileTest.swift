@@ -278,6 +278,24 @@ enum ProfileTest {
         check("echo: multi-sentence tail kept whole",
               TE.strippingGlossaryEcho("Glossary: A, B. First point. Second point.")
                 == "First point. Second point.")
+
+        // Cross-stream speaker-bleed dedup (mic re-hearing the speakers).
+        check("bleed: identical text is echo",
+              RecordingManager.isEchoDuplicate(
+                "The quarterly numbers are looking very strong this month.",
+                "The quarterly numbers are looking very strong this month."))
+        check("bleed: decode variance still echo",
+              RecordingManager.isEchoDuplicate(
+                "However, I'm worried about the churn rate on the Enterprise tier.",
+                "However I am worried about the churn rate on the enterprise tier."))
+        check("bleed: different sentences are not echo",
+              !RecordingManager.isEchoDuplicate(
+                "Can you send me the retention report before Tuesday?",
+                "The quarterly numbers are looking very strong this month."))
+        check("bleed: short ack is not echo of a long line",
+              !RecordingManager.isEchoDuplicate(
+                "Okay sure.",
+                "Can you send me the retention report before Tuesday?"))
     }
 
     static func testWAVEncoder() {
