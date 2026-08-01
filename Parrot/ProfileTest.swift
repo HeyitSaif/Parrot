@@ -26,6 +26,7 @@ enum ProfileTest {
         testLenientKBDecode()
         testStableHash()
         testNearDuplicate()
+        testSupersedes()
         testHallucinationFilter()
         testWAVEncoder()
         testAIUsageCost()
@@ -186,6 +187,65 @@ enum ProfileTest {
             "What are the actual requirements for UK bank account? Prospect asked what's needed to open a UK business bank account as a Moroccan resident.",
             "France customer base de-risks Stripe acceptance Prospect has customers in France which helps with processor acceptance."))
         check("dedup empty strings safe", !CallAnalysisEngine.isNearDuplicate("", "anything"))
+    }
+
+    // The model-side dedup verdict ("supersedes") — the 2026-07-17 call showed
+    // re-flags crossing kinds (Shopify: suggestion → unanswered_question) and
+    // rewording past any text heuristic (embedding distance was calibrated on
+    // that call's real cards and could not separate dups from distinct — see
+    // isNearDuplicate's scope note). Verify the whole chain: schema forces the
+    // field, prompt explains it, parser carries it.
+    static func testSupersedes() {
+        let kinds = ProfilePresets.all().first { $0.name == "Sales discovery" }!.kinds
+        let schema = ClaudeAnalysisProvider.schema(kinds: kinds, gauges: [])
+        let insightsProp = ((schema["properties"] as? [String: Any])?["insights"] as? [String: Any])
+        let items = insightsProp?["items"] as? [String: Any]
+        check("supersedes in item schema", ((items?["properties"] as? [String: Any])?["supersedes"]) != nil)
+        check("supersedes is required (compliance pattern)", (items?["required"] as? [String])?.contains("supersedes") == true)
+
+        let prompt = ClaudeAnalysisProvider.systemPrompt(persona: "P", kinds: kinds, gauges: [])
+        check("prompt explains supersedes", prompt.contains("supersedes"))
+
+        // Parser carries the verdict through; empty string normalizes to nil.
+        let payload = """
+        {"insights": [
+          {"kind": "objection", "title": "Banking intro in your package?", "detail": "d", "reply": "", "supersedes": "Prospect asking about bank account setup"},
+          {"kind": "objection", "title": "Genuinely new concern", "detail": "d", "reply": "", "supersedes": ""}
+        ], "sentiment": {"coach": "c", "score": 50, "read": "r"}, "resolved": []}
+        """
+        let parsed = try? ClaudeAnalysisProvider.parseAnalysisPayload(payload)
+        check("parse carries supersedes", parsed?.insights.first?.supersedes == "Prospect asking about bank account setup")
+        check("parse normalizes empty supersedes to nil", parsed?.insights.last?.supersedes == nil)
+        // The engine filter admits exactly the drafts without a verdict.
+        let admitted = (parsed?.insights ?? []).filter { ($0.supersedes ?? "").isEmpty }
+        check("re-flag dropped, new card admitted", admitted.count == 1 && admitted.first?.title == "Genuinely new concern")
+
+        // Verdict corroboration — honor the claim only when it stands up.
+        typealias E = CallAnalysisEngine
+        let bankingCard = [(title: "Prospect asking about bank account setup",
+                            text: "Prospect asking about bank account setup Prospect asked what happens after formation: specifically, how to open a UK business bank account.")]
+        // Real re-flag from the 2026-07-17 call: "banking"/"bank" corroborate via stem.
+        check("verdict honored: banking re-flag corroborates", E.verdictCorroborated(
+            supersedes: "Prospect asking about bank account setup",
+            draftText: "Banking intro in your package? Prospect asked whether a banking introduction is included.",
+            openCards: bankingCard))
+        // Observed llama3.2 hallucination: new EU question claiming to supersede
+        // the price card — zero shared stems, verdict rejected, card survives.
+        check("verdict rejected: hallucinated overlap survives", !E.verdictCorroborated(
+            supersedes: "Price pushback: quote is roughly double their current spend",
+            draftText: "EU hosting region unclear The prospect asked whether data is stored in the EU and got no answer.",
+            openCards: [(title: "Price pushback: quote is roughly double their current spend",
+                         text: "Price pushback: quote is roughly double their current spend The prospect said the quote is double what they pay today.")]))
+        check("verdict rejected: cited card not open", !E.verdictCorroborated(
+            supersedes: "Some card that was never shown",
+            draftText: "Banking intro in your package?",
+            openCards: bankingCard))
+        check("stem match: cross-kind Shopify pair", E.sharesTopicStem(
+            "Does the package include Shopify integration?",
+            "Prospect asking about Shopify integration support"))
+        check("stem match: pricing/price morphology", E.sharesTopicStem(
+            "Prospect asking about total package pricing",
+            "Prospect asking for full package price—answer it now"))
     }
 
     static func testHallucinationFilter() {
