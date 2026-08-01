@@ -49,7 +49,28 @@ If you find this useful or just think the idea is cool, give it a star. It'll ma
 
 ## Screenshots
 
-*Coming soon — the app has a clean dashboard with a big red record button, a sidebar with your meeting history, and a live transcription view.*
+The post-call report — summary, coaching, and commitments as section cards:
+
+![Post-call report with section cards](docs/screenshots/report.png)
+
+| Live Copilot during a call | Live transcript | Meeting history |
+|---|---|---|
+| ![Live Copilot panel with call score and suggested answer](docs/screenshots/copilot.png) | ![Chat-bubble live transcript](docs/screenshots/copilot-bubbles.png) | ![Sidebar meeting list with waveforms](docs/screenshots/sidebar.png) |
+
+*Rendered by the app's own snapshot harness with demo data — these are the real views the code draws, not mockups.*
+
+## Why Trust an App That Hears Your Calls?
+
+Fair question — this is a microphone-and-system-audio app, and you shouldn't have to take my word for anything. The properties you can check yourself:
+
+- **Local by default.** Out of the box there is exactly one network call in the whole app: a once-a-day GitHub check for new releases. Transcription, diarization, embeddings, reports — all on-device.
+- **Cloud features are opt-in, with your own keys.** Groq/Deepgram transcription and the Claude copilot only exist after you paste your key, and they're labelled with exactly what they send (transcript text — audio never leaves the Mac). Keys live in your Keychain, not in files.
+- **No accounts, no telemetry, no analytics.** There's no server for Parrot to phone home to.
+- **Small and auditable.** ~13k lines of Swift, two real dependencies (WhisperKit, plus a vendored SpeexDSP echo canceller). [FILEMAP.md](FILEMAP.md) maps every source file so an afternoon of reading covers the whole thing.
+- **Signed and notarized.** Releases are Developer ID-signed and Apple-notarized — what you download is what was built.
+- **Honest about the process.** The code is written with heavy AI assistance (Claude Code) under human direction, and every change runs a ~94-check logic harness plus visual snapshot verification before it lands. Outside PRs get read line by line — ask [@wkoszek](https://github.com/wkoszek).
+
+Found something that contradicts any of this? That's a security issue — see [SECURITY.md](SECURITY.md).
 
 ## Getting Started
 
@@ -61,15 +82,20 @@ Grab the latest notarized `.dmg` from the **[Releases page](https://github.com/t
 
 ### Build from source
 
-Prerequisites: macOS 14.0+, Xcode 15+, Apple Silicon recommended.
+Prerequisites: macOS 14.0+, Apple Silicon recommended, and an Xcode / Swift 5.9+ toolchain.
 
 ```bash
 git clone https://github.com/turantekin/Parrot.git
 cd Parrot
-open Parrot.xcodeproj
+make run
 ```
 
-Then hit **Run** in Xcode (or `Cmd+R`).
+`make run` compiles with `swift build`, assembles `dist/Parrot.app`, signs it with whatever identity you already have (ad-hoc if none), and launches it. `make help` lists the rest (`make test`, `make install`, `make clean`…).
+
+Two things worth knowing:
+
+- **Build with `make`, not Xcode's UI** — Xcode's explicit-modules build intermittently races on WhisperKit's transitive dependencies. If you want the IDE anyway, `make xcode` regenerates the project from `project.yml`; keep the actual builds on `make`.
+- **Permissions and rebuilds** — macOS ties the Screen Recording and Microphone grants to the signing identity, so ad-hoc builds re-ask after every rebuild. `make signing-help` shows two free ways to make them stick.
 
 ### Permissions
 
@@ -158,7 +184,9 @@ Parrot/
   SnapshotTool.swift           # `--snapshot` / `--copilot-snapshot` offscreen renders
 ```
 
-Contributing note: the project is generated with **xcodegen** — if you add or move files, edit `project.yml` and run `xcodegen generate` rather than editing the `.xcodeproj` by hand.
+The full per-file map (with line counts) lives in [FILEMAP.md](FILEMAP.md); conventions and layout for tooling and coding agents are in [AGENTS.md](AGENTS.md), and the human orientation is [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Contributing note: the project is generated with **xcodegen** — if you add or move files, edit `project.yml` and run `make xcode` rather than editing the `.xcodeproj` by hand.
 
 ## What's Next (My Wishlist)
 
@@ -189,9 +217,20 @@ No formal process. No templates. Just open an issue or PR and we'll figure it ou
 
 ## Known Issues (I'm Working on It)
 
-- **Screen Recording permission resets on source builds** — Xcode re-signs the binary each build, which can invalidate the permission (remove Parrot from Screen Recording in System Settings, re-add it, restart). Downloaded release builds are signed with a stable Developer ID and keep the grant across updates.
+- **Transcription can stop the moment you join a call** ([#12](https://github.com/turantekin/Parrot/issues/12)) — reported with Safari + Google Meet: macOS starts delivering pure silence to Parrot's mic tap while the call app holds the microphone. Under active investigation — the app ships opt-in diagnostics for it (`PARROT_AUDIO_DEBUG=1`), and logs from a failing call are gold.
+- **Screen Recording permission resets on ad-hoc source builds** — macOS ties the grant to the signing identity, and identity-less builds look like a new app every time. `make signing-help` shows two free ways to make it stick. Downloaded release builds keep the grant across updates.
 - **WhisperKit model download needs internet** — Only on first run. After that, everything is offline.
 - **Speaker diarization is... okay** — "Me" vs "Them" is exact (separate audio tracks), but splitting multiple far-side voices apart is energy-based and imperfect, especially with 3+ people on the other end. Real voice fingerprinting is on my list.
+
+## Similar Projects
+
+Parrot isn't alone in the "no cloud, no bots, just transcribe my meeting" corner — if you're evaluating approaches, read all of these:
+
+- [Meetily](https://github.com/Zackriya-Solutions/meetily) — local Whisper/Parakeet transcription with Ollama summaries (Rust)
+- [Hyprnote](https://github.com/fastrepl/hyprnote) — privacy-first meeting notepad, mic + system audio, on-device models
+- [screenpipe](https://github.com/mediar-ai/screenpipe) — continuous local screen & audio capture with local Whisper
+
+Parrot's angle: fully native SwiftUI + WhisperKit, and a *live* in-call copilot rather than only post-call notes.
 
 ## License
 
