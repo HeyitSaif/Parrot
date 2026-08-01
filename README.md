@@ -234,7 +234,9 @@ Parrot's angle: fully native SwiftUI + WhisperKit, and a *live* in-call copilot 
 
 ## License
 
-MIT — Use it, learn from it, improve it, do whatever you want with it.
+GPL-3.0 — Use it, learn from it, improve it. If you ship a modified version, it has to stay open source under the same license.
+
+Releases up to and including v0.11.3 were published under MIT and remain MIT.
 
 ---
 
