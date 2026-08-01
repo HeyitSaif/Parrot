@@ -12,6 +12,10 @@ struct InsightDraft {
     /// user could say to address it. KB-grounded when possible, else general
     /// knowledge when allowed.
     var reply: String? = nil
+    /// The model's own dedup verdict: the EXACT already-shown title this draft
+    /// overlaps with (same underlying issue, any wording, any kind), or nil/""
+    /// when genuinely new. Non-empty means the engine discards the draft.
+    var supersedes: String? = nil
 }
 
 /// Everything a provider needs for one analysis pass.
@@ -178,8 +182,12 @@ final class ClaudeAnalysisProvider: AnalysisProvider {
         is enough for the whole call: NEVER create another insight about the same underlying \
         issue, however reworded — no "still unanswered" / "still live" update cards, ever. \
         Before flagging anything, check the already-shown list: if any entry covers the same \
-        issue in different words, skip it. At most ONE new unresolved flag per response. \
-        Keep titles under 8 words and details under 2 sentences. Same language as the call.
+        issue in different words OR under a different kind, skip it. As enforcement, EVERY \
+        insight must fill "supersedes": the EXACT already-shown title it overlaps with, or \
+        "" when genuinely new. Insights with a non-empty "supersedes" are discarded, so \
+        emitting one is wasted work — skip it instead. At most ONE new unresolved flag per \
+        response. Keep titles under 8 words and details under 2 sentences. Same language \
+        as the call.
 
         Also return "resolved": the EXACT titles of any already-shown items that the \
         conversation has since genuinely dealt with (question answered, concern addressed) \
@@ -214,11 +222,13 @@ final class ClaudeAnalysisProvider: AnalysisProvider {
                 "detail": ["type": "string"],
                 "source": ["type": "string", "description": "Exact KB document name, or 'general knowledge'. Omit otherwise."],
                 "reply": ["type": "string", "description": "For unresolved flags: one short line the user could say to address it. Empty string for kinds that don't need one."],
+                "supersedes": ["type": "string", "description": "EXACT title from the already-shown list that this insight overlaps with — same underlying issue in any wording or under any kind. Such insights are discarded, so prefer not emitting them. Empty string only when genuinely new."],
             ],
-            // reply is required (empty string = none): optional fields get
-            // sporadic compliance, which showed up as answers on some orange
-            // cards and not others.
-            "required": ["kind", "title", "detail", "reply"],
+            // reply and supersedes are required (empty string = none): optional
+            // fields get sporadic compliance, which showed up as answers on some
+            // orange cards and not others. supersedes doubles as a forced
+            // check against the already-shown list before each emission.
+            "required": ["kind", "title", "detail", "reply", "supersedes"],
             "additionalProperties": false,
         ]
         var properties: [String: Any] = ["insights": ["type": "array", "items": itemSchema]]
@@ -447,7 +457,13 @@ final class ClaudeAnalysisProvider: AnalysisProvider {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        // .sortedKeys is load-bearing: the API compiles the structured-output
+        // schema into a grammar and caches it for 24h KEYED ON THE SCHEMA BYTES.
+        // Swift dictionary order is randomized per process, so without sorting
+        // every app launch sent byte-different schema JSON and repaid the
+        // one-time grammar compilation on its first analysis pass — measured at
+        // 1–4 minutes for the current schema vs seconds on a cache hit.
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
 
         // ponytail: single retry with fixed backoff on transient failures; add
         // jitter / Retry-After parsing if rate limits persist.
@@ -535,7 +551,8 @@ final class ClaudeAnalysisProvider: AnalysisProvider {
                   let detail = item["detail"] as? String else { return nil }
             return InsightDraft(kindKey: kind, title: title, detail: detail,
                                 source: (item["source"] as? String)?.nilIfEmpty,
-                                reply: (item["reply"] as? String)?.nilIfEmpty)
+                                reply: (item["reply"] as? String)?.nilIfEmpty,
+                                supersedes: (item["supersedes"] as? String)?.nilIfEmpty)
         }
         var sentiment: [String: Int] = [:]
         var read: String? = nil

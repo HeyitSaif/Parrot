@@ -304,7 +304,10 @@ enum AnalyzeTest {
         """
         let request = AnalysisRequest(
             transcript: transcript,
-            knownInsightTitles: [],
+            // The price objection at 01:02 is ALREADY covered by this shown
+            // card, so a well-behaved model must not re-flag it (or must mark
+            // the re-flag via "supersedes" — printed below to judge dedup).
+            knownInsightTitles: ["Price pushback: quote is roughly double their current spend"],
             references: [],
             instructions: "",
             callBrief: "",
@@ -332,6 +335,7 @@ enum AnalyzeTest {
                     var line = "- [\(insight.kindKey)] \(insight.title) — \(insight.detail)"
                     if let reply = insight.reply { line += " | say: \(reply)" }
                     if let source = insight.source { line += " | src: \(source)" }
+                    if let supersedes = insight.supersedes { line += " | SUPERSEDES: \(supersedes)" }
                     print(line)
                 }
                 let usage = analysisProvider.usageTotals

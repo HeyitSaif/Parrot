@@ -238,6 +238,22 @@ final class CallAnalysisEngine {
             // prompt instructions alone don't stop it, so enforce it here.
             let openInsights = insights.filter { !$0.isHandled }
             let unique = result.insights
+                // The model's own dedup verdict: a non-empty "supersedes" means
+                // it recognized the draft as an already-shown issue (any wording,
+                // any kind). The 2026-07-17 call showed re-flags routinely cross
+                // kinds (Shopify arrived as suggestion, then unanswered_question)
+                // where no client-side text heuristic can safely judge — see the
+                // calibration note on isNearDuplicate. The verdict is only
+                // honored when corroborated, because a weak local model was
+                // observed citing an unrelated card (dropping a genuinely new
+                // insight is worse than letting one duplicate through).
+                .filter { draft in
+                    guard let claimed = draft.supersedes, !claimed.isEmpty else { return true }
+                    return !Self.verdictCorroborated(
+                        supersedes: claimed,
+                        draftText: "\(draft.title) \(draft.detail)",
+                        openCards: openInsights.map { ($0.title, "\($0.title) \($0.detail)") })
+                }
                 .filter { !existingTitles.contains($0.title.lowercased()) }
                 .filter { draft in
                     !openInsights.contains { existing in
@@ -311,25 +327,70 @@ final class CallAnalysisEngine {
 
     // MARK: - Heuristics
 
+    /// Whether a model's "supersedes" claim holds up: the cited title must be a
+    /// real open card, and the two texts must share at least one topic stem.
+    /// Every true re-flag observed in the 2026-07-17 call shares one ("bank" /
+    /// "banking", "shopify", "pricing" / "price"), while the hallucinated
+    /// verdict a weak local model produced (EU-hosting card claiming to
+    /// supersede the price card) shares none — that draft must survive.
+    nonisolated static func verdictCorroborated(
+        supersedes: String, draftText: String, openCards: [(title: String, text: String)]
+    ) -> Bool {
+        let claimed = supersedes.lowercased()
+        guard let cited = openCards.first(where: { $0.title.lowercased() == claimed }) else {
+            return false
+        }
+        return sharesTopicStem(draftText, cited.text)
+    }
+
+    /// True when any pair of significant tokens from the two texts shares a
+    /// ≥4-character prefix — cheap morphology so "banking"/"bank" and
+    /// "pricing"/"price" count as the same topic word.
+    nonisolated static func sharesTopicStem(_ a: String, _ b: String) -> Bool {
+        let ta = significantTokens(a), tb = significantTokens(b)
+        return ta.contains { wa in
+            tb.contains { wb in
+                let n = min(4, min(wa.count, wb.count))
+                return n >= 4 && wa.prefix(n) == wb.prefix(n)
+            }
+        }
+    }
+
     /// Cheap "same issue, different words" check: significant-word overlap,
     /// normalized by the smaller set. Catches "Annual plan pricing—still
     /// unanswered" vs "What does the annual subscription cost?" while
     /// keeping genuinely distinct topics apart.
-    // ponytail: bag-of-words similarity; upgrade path is embedding distance
-    // via the KB's embedder if rewording ever gets past this.
+    ///
+    /// Scope note (2026-08-01): this is deliberately the ONLY client-side text
+    /// heuristic. Sentence-embedding distance (NLEmbedding, the KB's embedder)
+    /// was calibrated against the real 2026-07-17 call and could not separate
+    /// true re-flags from genuinely distinct cards — dup pairs scored 0.35–0.81
+    /// while distinct pairs scored 0.32–0.70, overlapping almost entirely
+    /// ("banking intro in your package?" vs "bank account setup" = 0.45, but
+    /// buying-signal vs timeline-gap on the same launch = 0.66). Rewording that
+    /// slips past this token check is handled model-side via the required
+    /// "supersedes" field, which the engine filter above enforces.
     nonisolated static func isNearDuplicate(_ a: String, _ b: String) -> Bool {
-        let stop: Set<String> = ["the", "and", "for", "you", "your", "they", "their", "them",
-                                 "what", "whats", "how", "does", "still", "with", "about",
-                                 "from", "that", "this", "are", "isnt", "not", "have", "has"]
-        func tokens(_ s: String) -> Set<String> {
-            Set(s.lowercased()
-                .components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { $0.count > 2 && !stop.contains($0) })
-        }
-        let ta = tokens(a), tb = tokens(b)
+        let ta = significantTokens(a), tb = significantTokens(b)
         guard !ta.isEmpty, !tb.isEmpty else { return false }
         let overlap = Double(ta.intersection(tb).count)
         return overlap / Double(min(ta.count, tb.count)) >= 0.6
+    }
+
+    private nonisolated static let stopWords: Set<String> = [
+        "the", "and", "for", "you", "your", "they", "their", "them",
+        "what", "whats", "how", "does", "still", "with", "about",
+        "from", "that", "this", "are", "isnt", "not", "have", "has",
+        // Copilot-card boilerplate: these frame every card ("Prospect asked
+        // whether…", "the user said…") and appear regardless of topic, so they
+        // must never count as topic evidence.
+        "prospect", "prospects", "asked", "asking", "asks", "whether", "said", "user",
+    ]
+
+    private nonisolated static func significantTokens(_ s: String) -> Set<String> {
+        Set(s.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count > 2 && !stopWords.contains($0) })
     }
 
     /// Cheap detector that fast-tracks analysis when someone asks something.
