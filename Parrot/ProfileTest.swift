@@ -261,6 +261,23 @@ enum ProfileTest {
         check("halluc: real sentence kept", !TranscriptionEngine.isLikelyHallucination("Can you hear me?", energy: 0.002))
         check("halluc: loud 'Okay.' kept", !TranscriptionEngine.isLikelyHallucination("Okay.", energy: 0.02))
         check("halluc: loud 'Thank you.' kept", !TranscriptionEngine.isLikelyHallucination("Thank you.", energy: 0.03))
+
+        // Glossary echo stripping: a prompt leak PREFIXING real speech must not
+        // take the speech with it (the live segment-drop of 2026-08-01).
+        typealias TE = TranscriptionEngine
+        check("echo: prefixed speech survives the leak",
+              TE.strippingGlossaryEcho("Glossary: Launchese, Uygar. However I'm worried about churn.")
+                == "However I'm worried about churn.")
+        check("echo: pure echo still drops",
+              TE.strippingGlossaryEcho("Glossary: Launchese, Uygar.") == nil)
+        check("echo: unterminated echo still drops",
+              TE.strippingGlossaryEcho("Glossary Launchese Uygar") == nil)
+        check("echo: normal speech passes untouched",
+              TE.strippingGlossaryEcho("The glossary says nothing about churn.")
+                == "The glossary says nothing about churn.")
+        check("echo: multi-sentence tail kept whole",
+              TE.strippingGlossaryEcho("Glossary: A, B. First point. Second point.")
+                == "First point. Second point.")
     }
 
     static func testWAVEncoder() {

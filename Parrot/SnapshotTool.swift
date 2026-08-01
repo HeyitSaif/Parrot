@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import SwiftData
 import WhisperKit
+import AVFoundation
 
 /// Dev-only: transcribes a real audio file with the production decoding options to
 /// verify the output is clean (no "<|...|>" tokens, no repetition loops) without
@@ -44,6 +45,96 @@ enum TranscribeTest {
         }
         sem.wait()
         exit(0)
+    }
+}
+
+/// Drives the LIVE transcription loop (segmenter + decode + filters) end to
+/// end from an audio file, the way capture feeds it. Run with:
+///   Parrot --liveloop-test /path/audio.aiff [model]
+/// Set LIVELOOP_REALTIME=1 to feed at recording pace (slow, but reproduces
+/// live polling interleave); default feeds everything and drains.
+/// Born from a real drop: the middle sentence of a three-sentence test never
+/// reached the transcript while both neighbors did (2026-08-01).
+enum LiveLoopTest {
+    static func run(audioPath: String, model: String) {
+        // dispatchMain(), not a semaphore: the engine's lifecycle funcs are
+        // @MainActor, so the main thread must service the main queue rather
+        // than block — a sem.wait() here deadlocks before the first print.
+        Task { @MainActor in
+            // LIVELOOP_VOCAB simulates the app's custom vocabulary (glossary
+            // prompt) without touching persisted defaults — the same
+            // register(defaults:) trick the snapshot harnesses use.
+            if let vocab = ProcessInfo.processInfo.environment["LIVELOOP_VOCAB"] {
+                UserDefaults.standard.register(defaults: ["customVocabulary": vocab])
+            }
+            let engine = TranscriptionEngine()
+            await engine.loadModel(model.isEmpty ? "base" : model)
+            guard engine.isReady else { print("liveloop-test: model failed to load"); exit(1) }
+
+            var emitted: [(text: String, start: TimeInterval, end: TimeInterval)] = []
+            engine.onSegment = { r in emitted.append((r.text, r.startTime, r.endTime)) }
+
+            let samples: [Float]
+            do { samples = try loadSamples16k(path: audioPath) } catch {
+                print("liveloop-test: audio load failed — \(error)"); exit(1)
+            }
+            print("liveloop-test: \(samples.count) samples (\(String(format: "%.1f", Double(samples.count) / 16000))s)")
+
+            engine.startTranscribing(meetingStartTime: .now)
+            let realtime = ProcessInfo.processInfo.environment["LIVELOOP_REALTIME"] != nil
+            let slice = 3200  // 200 ms, the ballpark capture delivers
+            var i = 0
+            while i < samples.count {
+                let end = min(i + slice, samples.count)
+                engine.appendAudio(pcmBuffer(Array(samples[i..<end])), source: .them)
+                if realtime { try? await Task.sleep(for: .milliseconds(200)) }
+                i = end
+            }
+            await engine.stopTranscribing()  // drain the tail
+            try? await Task.sleep(for: .seconds(0.5))  // let queued onSegment hops land
+
+            print("=== liveloop-test — \(emitted.count) segment(s) ===")
+            for seg in emitted {
+                print(String(format: "[%6.2f – %6.2f] %@", seg.start, seg.end, seg.text))
+            }
+            exit(0)
+        }
+        dispatchMain()
+    }
+
+    /// File → 16 kHz mono Float32, the engine's expected input format.
+    private static func loadSamples16k(path: String) throws -> [Float] {
+        let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
+        let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000,
+                                   channels: 1, interleaved: false)!
+        let inBuf = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                     frameCapacity: AVAudioFrameCount(file.length))!
+        try file.read(into: inBuf)
+        let converter = AVAudioConverter(from: file.processingFormat, to: target)!
+        let outCap = AVAudioFrameCount(Double(file.length) * 16000 / file.processingFormat.sampleRate) + 1024
+        let outBuf = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: outCap)!
+        var fed = false
+        var convError: NSError?
+        converter.convert(to: outBuf, error: &convError) { _, status in
+            if fed { status.pointee = .endOfStream; return nil }
+            fed = true
+            status.pointee = .haveData
+            return inBuf
+        }
+        if let convError { throw convError }
+        return Array(UnsafeBufferPointer(start: outBuf.floatChannelData![0],
+                                         count: Int(outBuf.frameLength)))
+    }
+
+    private static func pcmBuffer(_ samples: [Float]) -> AVAudioPCMBuffer {
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000,
+                                   channels: 1, interleaved: false)!
+        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))!
+        buf.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer {
+            buf.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count)
+        }
+        return buf
     }
 }
 
