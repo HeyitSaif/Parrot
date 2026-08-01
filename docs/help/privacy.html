@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="privacy, local, on device, cloud, what is sent, audio, transcript, api keys, keychain, security">
+<title>What leaves your Mac</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>What leaves your Mac</h1>
+
+<p>Short version: with a fresh install, nothing. Every choice that changes
+that is one you make yourself, and here is the complete list.</p>
+
+<h2>Always on your Mac</h2>
+<ul>
+  <li>Audio recordings. They are written to your disk and never uploaded
+  anywhere by anything, ever. No exceptions, no telemetry, no accounts.</li>
+  <li>Transcription, by default: the Whisper model runs on your machine and
+  works with the network cable unplugged.</li>
+  <li>Meetings, transcripts, insights, reports: a local database in the app's
+  own container.</li>
+  <li>Your API keys, if you add any: stored in the macOS Keychain, not in
+  files.</li>
+</ul>
+
+<h2>Sent out only if you set it up</h2>
+<ul>
+  <li><strong>Copilot on Claude or a custom server:</strong> transcript text
+  from the current call (plus matched knowledge base snippets and your
+  profile's instructions) goes to that provider during calls and for reports.
+  Audio never goes.</li>
+  <li><strong>Cloud transcription (Groq or Deepgram):</strong> the call audio
+  is sent to them for speech-to-text as it happens. This is the one opt-in
+  that sends sound. On-device stays the default.</li>
+  <li><strong>Update check:</strong> once a day Parrot asks GitHub whether a
+  newer release exists. It sends nothing about you; it just reads the public
+  releases list.</li>
+</ul>
+
+<h2>And Ollama?</h2>
+<p>Ollama runs on your own machine, so a Copilot on Ollama keeps everything
+local: Parrot only ever talks to it on localhost. Local model, local
+transcription, zero outbound bytes. That combination is the whole reason
+Parrot exists.</p>
+
+</body>
+</html>

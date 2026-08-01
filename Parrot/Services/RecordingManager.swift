@@ -57,6 +57,16 @@ final class RecordingManager {
         callAnalysisEngine.knowledgeBase = knowledgeBase
     }
 
+    /// Dev-harness only (--help-shots): seed a live-looking session so
+    /// LiveRecordingView can render offscreen without recording anything.
+    func seedForSnapshot(meeting: Meeting, elapsed: TimeInterval, modelContext: ModelContext) {
+        self.modelContext = modelContext
+        currentMeeting = meeting
+        elapsedTime = elapsed
+        recordingStartTime = Date().addingTimeInterval(-elapsed)
+        isRecording = true
+    }
+
     /// Initialize and load the default WhisperKit model
     func prepare(modelContext: ModelContext) async {
         self.modelContext = modelContext

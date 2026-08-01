@@ -74,6 +74,9 @@ xcrun actool Parrot/Assets.xcassets \
 [ -f "$APP/Contents/Resources/AppIcon.icns" ] && plutil -replace CFBundleIconFile -string AppIcon "$PLIST"
 rm -f "$ACTOOL_PLIST"
 
+echo "==> assembling help book"
+scripts/assemble-help.sh "$APP"
+
 echo "==> codesigning (Developer ID, hardened runtime, secure timestamp)"
 # The SwiftPM resource bundles are flat (no Info.plist) and contain no code, so
 # they can't and needn't be signed standalone — the app signature seals them.

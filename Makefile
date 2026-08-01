@@ -128,6 +128,9 @@ bundle: build
 	@rm -f $(DIST)/actool.plist
 	@[ -f $(APP)/Contents/Resources/AppIcon.icns ] && \
 		plutil -replace CFBundleIconFile -string AppIcon $(PLIST) || true
+	@# In-app help: the same docs/help pages GitHub serves, bundled + indexed
+	@# for the native Help menu (must land before codesign seals the bundle).
+	@scripts/assemble-help.sh $(APP)
 	codesign --force --options runtime --timestamp=none \
 		--entitlements Parrot/Parrot.entitlements \
 		--sign "$(SIGN_IDENTITY)" $(APP)

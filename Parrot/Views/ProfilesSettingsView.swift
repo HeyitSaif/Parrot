@@ -4,6 +4,10 @@ import SwiftData
 // MARK: - ProfilesSettingsView
 
 struct ProfilesSettingsView: View {
+    /// Snapshot-harness only: opens the Advanced disclosure so the help
+    /// screenshots can show the kind/gauge editors. Never set in the app.
+    var advancedInitiallyOpen = false
+
     @Environment(ProfileStore.self) private var profileStore
     @Environment(RecordingManager.self) private var recordingManager
     @Environment(\.modelContext) private var context
@@ -75,7 +79,8 @@ struct ProfilesSettingsView: View {
                 ProfileDetailView(
                     profile: profile,
                     knowledgeBase: recordingManager.knowledgeBase,
-                    context: context
+                    context: context,
+                    advancedInitiallyOpen: advancedInitiallyOpen
                 )
                 // Fresh identity per profile: keeps editor @State from leaking
                 // across selection and stops onChange(of: persona/counterpart)
@@ -158,6 +163,15 @@ private struct ProfileDetailView: View {
     @Bindable var profile: CallProfile
     let knowledgeBase: KnowledgeBaseService
     let context: ModelContext
+    @State private var advancedOpen: Bool
+
+    init(profile: CallProfile, knowledgeBase: KnowledgeBaseService,
+         context: ModelContext, advancedInitiallyOpen: Bool = false) {
+        self.profile = profile
+        self.knowledgeBase = knowledgeBase
+        self.context = context
+        _advancedOpen = State(initialValue: advancedInitiallyOpen)
+    }
 
     var body: some View {
         Form {
@@ -224,7 +238,7 @@ private struct ProfileDetailView: View {
 
             // MARK: Edit Advanced
             Section {
-                DisclosureGroup("Advanced — card kinds & gauges") {
+                DisclosureGroup("Advanced — card kinds & gauges", isExpanded: $advancedOpen) {
                     // Kinds subsection
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Call Kinds")

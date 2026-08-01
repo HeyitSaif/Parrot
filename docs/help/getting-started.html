@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="install, setup, permissions, screen recording, microphone, whisper model, download, first run">
+<title>Getting started</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>Getting started</h1>
+
+<h2>Install</h2>
+<p>Grab the latest DMG from the
+<a href="https://github.com/turantekin/Parrot/releases">releases page</a>, open
+it, and drag Parrot into Applications. That's it. If you'd rather build from
+source, clone the repo and run <code>make run</code>.</p>
+
+<h2>The two permissions</h2>
+<p>On first launch Parrot walks you through two macOS permissions. Both are
+needed to record a call properly:</p>
+<ul>
+  <li><strong>Screen Recording.</strong> This one surprises people, so here's
+  the honest explanation: it is simply how macOS exposes system audio. Parrot
+  uses it to hear the <em>other</em> side of your call. It never captures your
+  screen content, only sound.</li>
+  <li><strong>Microphone.</strong> Your side of the call.</li>
+</ul>
+
+<div class="tip"><strong>Heads up:</strong> Screen Recording only takes effect
+after the app restarts. If the permission row stays red after you granted it,
+quit Parrot and open it again. macOS is just like that.</div>
+
+<h2>Pick a model</h2>
+<p>Transcription happens on your Mac with Whisper, so you pick which model to
+use during onboarding. <code>base</code> is a good start: small, quick, decent
+accuracy. If your Mac has Apple Silicon and some room to spare,
+<code>large-v3-turbo</code> is noticeably more accurate and still fast. The
+model downloads once on first use and lives on your disk after that, so
+transcription works offline.</p>
+
+<p>You can switch models any time in Settings → Transcription.</p>
+
+<h2>That's all</h2>
+<img src="img/dashboard.png" alt="The dashboard: record button, profile chips, stats and recent meetings">
+<p>Hit the big record button and talk. The transcript shows up as you speak.
+When you're curious about the AI side of Parrot, read
+<a href="copilot-setup.html">Setting up the Copilot</a>. It's optional and off
+by default.</p>
+
+</body>
+</html>

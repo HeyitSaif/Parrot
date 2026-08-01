@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="call screen, live view, recording screen, timer, stop, device bar, mic level, copilot panel, call score, transcript, notes, tour, what does">
+<title>The call screen, part by part</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>The call screen, part by part</h1>
+
+<p>This is what Parrot looks like mid-call. Here's a tour of every region,
+top to bottom, and what's worth keeping an eye on.</p>
+
+<img src="img/live-screen.png" alt="The live call screen: header, device bar, Copilot panel on the left, transcript on the right">
+
+<h2>The top strip</h2>
+<p><strong>Recording</strong> and the timer on the left, the
+<strong>Stop</strong> button on the right. The dotted waveform under it is the
+last minute of audio activity, a quick "yes, sound is arriving" check.</p>
+
+<h2>The device bar</h2>
+<p>Your current microphone with a live level meter, and the output device on
+the right. Two things to watch here:</p>
+<ul>
+  <li>The <strong>mic meter</strong> should move when you speak. If you talk
+  and it stays flat, your Mac is listening to the wrong microphone; pick the
+  right one in System Settings → Sound.</li>
+  <li>If <strong>"mic muted by another app"</strong> appears here in orange,
+  your call app grabbed the mic and Parrot is fighting to get it back. It
+  usually wins. Details in <a href="troubleshooting.html">Troubleshooting</a>.</li>
+</ul>
+
+<h2>The Copilot panel (left half)</h2>
+<p>Everything the AI thinks about your call, glanceable:</p>
+<ul>
+  <li><strong>Call score</strong>, the big number: 0 to 100, how the call is
+  going overall. Green is good, orange is wobbly, red means rescue it.</li>
+  <li><strong>The coach line</strong> next to it, one sentence of "what to do
+  right now". It updates as the call moves.</li>
+  <li><strong>Gauges</strong>, the small chips underneath: whatever your
+  profile measures (buying temperature on the sales profile, for example),
+  plus the mood read.</li>
+  <li><strong>"You 44%"</strong> in the header is your share of the talking.
+  If it climbs past 70 it turns orange, which is the app's polite way of
+  saying let the other person speak.</li>
+  <li><strong>The pause button</strong> next to the status: stops all AI
+  requests instantly, keeps your cards; press play to catch up. Nothing is
+  sent while paused. More in
+  <a href="copilot-live.html">The Copilot during a call</a>.</li>
+  <li><strong>Status</strong> on the far right: green dot Listening, spinner
+  Thinking, grey dot Paused.</li>
+</ul>
+
+<h2>The cards</h2>
+<p>Below the score, cards arrive as the conversation gives the Copilot
+something to say. The one to never miss: cards with the orange warning icon
+are <strong>blockers</strong>, and they stay pinned at the top until you tick
+them handled. The "1 open" counter next to the score tells you how many are
+waiting. Regular cards stack below; every card shows its time in the call
+(click it to jump the transcript there), and suggested answers come with a
+copy button so you can paste the line into chat if saying it feels weird.
+Dismiss anything wrong with the ×, it trains nothing and hurts nothing.</p>
+
+<h2>The right half: Transcript and Notes</h2>
+<p>The <strong>Transcript</strong> tab is the live conversation, you on the
+right in blue, everyone else on the left, with a light preview bubble while
+someone is mid-sentence. It follows the newest line on its own; scroll up to
+re-read something and it politely stops following until you scroll back
+down.</p>
+<p>The <strong>Notes</strong> tab is a plain text pad for the thoughts the AI
+can't have for you. Notes are saved with the meeting and come along when you
+export it.</p>
+<p>The small icon next to the tabs collapses the whole right side if you want
+the Copilot full-width, and the sparkle icon in the very top bar hides the
+Copilot instead if you only want the transcript.</p>
+
+</body>
+</html>

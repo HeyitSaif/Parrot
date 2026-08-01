@@ -155,11 +155,16 @@ struct ParrotCommands: Commands {
             .disabled(!recordingManager.isRecording || recordingManager.isStopping)
         }
 
-        // Help: take people to the project instead of "Help isn't available".
+        // Help: the bundled Apple Help Book (searchable, offline), plus the
+        // same pages on the web and the project links.
         CommandGroup(replacing: .help) {
             Button("Parrot Help") {
-                MeetingActions.open("\(MeetingActions.repoURL)#readme")
+                NSApp.showHelp(nil)
             }
+            Button("Parrot Help on the Web") {
+                MeetingActions.open("https://turantekin.github.io/Parrot/help/")
+            }
+            Divider()
             Button("Parrot on GitHub") {
                 MeetingActions.open(MeetingActions.repoURL)
             }

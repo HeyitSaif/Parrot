@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="keywords" content="profiles, call types, sales, coaching, interview, kinds, card kinds, gauges, persona, tone, custom rules, trigger, pinned, priority, internal key, icon, color, edit, duplicate, advanced">
+<title>Call profiles</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<a class="crumb" href="index.html">← Parrot Help</a>
+
+<h1>Call profiles</h1>
+
+<p>A sales discovery call and a 1:1 with a teammate need very different help.
+Profiles are how you tell the Copilot which kind of call this is, and, if you
+go one level deeper, exactly which cards it should raise and when. You pick a
+profile with the chips above the record button; you shape them in
+Settings → Profiles.</p>
+
+<img src="img/settings-profiles.png" alt="The Profiles page: profile list on the left, editor on the right">
+
+<h2>The profile list</h2>
+<p>Parrot ships with six built-ins: Default, Sales discovery, 1:1 coaching,
+Interview, Customer support, and Generic. You can edit every one of them,
+built-in only means you can't delete it. The two small buttons under the list
+are <strong>duplicate</strong> (the safe way to experiment: copy a built-in,
+go wild on the copy) and <strong>delete</strong>, which only works on your own
+profiles.</p>
+
+<h2>The basics: who is this call with</h2>
+<p>The top of the editor is quick housekeeping: the profile's
+<strong>name</strong>, an <strong>icon</strong> from the grid, a one-line
+<strong>summary</strong> for your own memory, and
+<strong>"call the other party"</strong>, which is simply the word the Copilot
+uses for them in cards, "the prospect", "the candidate", "the customer".
+Small thing, but cards read much more naturally when it's set.</p>
+
+<h2>Persona, custom rules, and general knowledge</h2>
+<ul>
+  <li><strong>Persona</strong> tells the model who it is in this call. The
+  built-ins ship with sensible ones; make it yours ("You are helping a
+  founder sell a B2B accounting product to UK agencies") and the advice gets
+  noticeably sharper.</li>
+  <li><strong>Custom rules</strong> are house rules the Copilot follows on
+  every call with this profile, one per line. "Always confirm budget before
+  timeline." "Never promise a delivery date." Think of it as the sticky note
+  you'd tape to your own monitor.</li>
+  <li><strong>The general-knowledge toggle</strong> decides what happens when
+  your documents don't cover a question. On, the model may answer from what
+  it knows about the world. Off, it stays strictly inside your documents and
+  says so when it can't answer. Strict mode never invents your prices, at
+  the cost of more "I don't know".</li>
+</ul>
+
+<h2>Knowledge documents</h2>
+<p>Tick which of your uploaded documents this profile may use. The pricing
+sheet belongs in sales calls and has no business in a 1:1. Documents are
+added on the <a href="knowledge.html">Knowledge page</a> first, then tagged
+here.</p>
+
+<h2>Advanced: the card kinds</h2>
+<p>Click <strong>"Advanced — card kinds &amp; gauges"</strong> at the bottom
+of the editor and the real machinery opens up. This looks like a lot, but
+each kind is just five decisions, and the screenshot below shows several
+fully open:</p>
+
+<img src="img/profiles-advanced.png" alt="The Advanced section: full editors for each card kind with name, trigger, color, key, icon, pinned toggle and priority">
+
+<p>A <strong>kind</strong> is one type of card the Copilot can raise. The
+Default profile's five are a good study: Suggested answer, Open question,
+Blocker, Action item, Feedback. For each one you control:</p>
+
+<ul>
+  <li><strong>Card name</strong>: the label printed on the card. Plain
+  English, keep it short.</li>
+  <li><strong>"Show this card when…"</strong>: the most important field on
+  this whole page. It's a plain-English sentence telling the model when this
+  card deserves to exist, like "An objection or obstacle came up (price,
+  timing, decision maker, competitor) that isn't resolved." Write it the way
+  you'd brief a human assistant: specific beats clever. Vague triggers get
+  you noisy cards; sharp triggers get you the right card at the right
+  moment.</li>
+  <li><strong>Color and icon</strong>: how the card looks. Pick from the
+  swatches and the icon grid; the color also tints the card's badge in the
+  panel.</li>
+  <li><strong>Internal key</strong>: the kind's machine name, like
+  <code>blocker</code> or <code>action_item</code>. It's the card's identity
+  in saved meetings, so the rule is simple: set it once when you create a
+  kind (lowercase, underscores, no spaces) and then leave it alone. Renaming
+  the card name is always safe; changing the key makes old cards of that
+  kind forget their styling.</li>
+  <li><strong>"Keep on screen until handled"</strong>: the pinned toggle.
+  Pinned cards stick to the top of the panel until you tick them done, which
+  is exactly the behavior that makes blockers impossible to miss. Use it
+  only for things that genuinely must not scroll away, one or two kinds per
+  profile at most, or everything is urgent and nothing is.</li>
+  <li><strong>Priority</strong>: when space is tight, higher-priority cards
+  win. Blocker ships at 10, everything else at 0. You rarely need to touch
+  it.</li>
+</ul>
+
+<p><strong>+ Add Kind</strong> creates a new empty kind. A good test for
+whether a kind deserves to exist: can you finish the sentence "show this card
+when…" crisply? If you can't, the model can't either.</p>
+
+<h2>Advanced: the gauges</h2>
+<p>Below the kinds live the <strong>sentiment gauges</strong>, the small
+meters at the top of the Copilot panel. Each gauge is a name, a color, and an
+internal key, and the model scores it 0 to 100 on every pass. Sales discovery
+ships with "Buying temperature"; a support profile might track "Frustration".
+Two or three gauges is the sweet spot, they're meant to be glanceable.</p>
+
+<div class="tip"><strong>A sane way to customize:</strong> duplicate the
+built-in closest to your calls, rename it, sharpen the persona, then adjust
+one kind's trigger at a time and take it on a real call. Small changes, real
+calls, quick iterations. The
+<a href="copilot-live.html">free-tier recipe</a> works during experiments
+too.</div>
+
+</body>
+</html>
