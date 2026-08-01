@@ -357,7 +357,11 @@ final class TranscriptionEngine {
         decodeOptions.noSpeechThreshold = 0.6
         decodeOptions.temperatureFallbackCount = 3
 
-        transcriptionTask = Task { [weak self] in
+        // Detached on purpose: startTranscribing is @MainActor, and a plain
+        // Task {} would inherit that, putting every energy scan and buffer copy
+        // on the main thread for the whole call. The loop belongs on the global
+        // executor; its UI-state writes already hop via MainActor explicitly.
+        transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
 
             while !Task.isCancelled {
