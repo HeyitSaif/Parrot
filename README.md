@@ -127,7 +127,9 @@ Parrot uses WhisperKit models for transcription. Pick one during onboarding:
 | large-v3-turbo compressed | ~626 MB | Moderate | Near-best |
 | large-v3-turbo | ~1.6 GB | Slower | Best |
 
-The model downloads automatically on first use. `base` is a good default.
+The model downloads automatically on first use, with a progress bar so you can
+see it happening. `base` is a good default; the compressed turbo is the sweet
+spot if you want accuracy without the memory.
 
 ### Or pick a cloud transcription engine (optional)
 
@@ -224,7 +226,7 @@ Here's where I could really use a hand:
 - **Feature ideas** — Open an issue and let's chat about it.
 - **Just vibes** — Even if you just want to say "cool project" or "this is dumb, do it this way instead" — I'm all ears.
 
-No formal process. No templates. Just open an issue or PR and we'll figure it out together.
+No formal process. No templates. Just open an issue or PR and we'll figure it out together. Easiest way: click the little ladybug in the bottom right corner of the app (or **Help → Report a Bug…**). It writes the boring parts for you — version, model, settings — and hands you a pre-filled issue to look over and post yourself. Ideas go through the same button.
 
 ## Known Issues (I'm Working on It)
 
