@@ -177,6 +177,18 @@ existing interface; everything downstream already works.
 
 ### Phase 2 — naming UX (label the voices)
 
+> **Implementation note (2026-08-04, phase 2 built):** shipped as specced
+> with three deviations. (1) The legacy `themName` migration became a
+> precedence rule instead of a data rewrite: collective name applies only
+> while no per-speaker name exists. (2) The confirm card hides after the
+> first name is assigned (not when all are named) — remaining voices are
+> named via their chips. (3) The header's legacy single-name field stays for
+> now. Known polish items: popover anchors to the window edge rather than
+> the clicked chip; clip playback reuses the main player (position bar moves
+> during preview). Also fixed in passing: `make`-built bundles crashed since
+> Sparkle landed (nested framework unsigned) — the Makefile now signs
+> inside-out like release.sh.
+
 Data model:
 - `Meeting.speakerNames: [String: String]` (label → display name), stored as
   Data/JSON like `profileSnapshotData`. `displayName(forSpeaker:)` consults
