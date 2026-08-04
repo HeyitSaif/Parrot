@@ -38,6 +38,8 @@ struct MeetingDetailView: View {
     @State private var tab: ReportTab = .report
     @State private var themNameText = ""
     @State private var showCostBreakdown = false
+    @State private var cardNamingLabel: String?
+    @State private var clipStopTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -381,20 +383,15 @@ struct MeetingDetailView: View {
                 processingView
                 Divider()
             }
-            // Re-run on-device speaker detection — fixes old meetings recorded
-            // before real diarization, and bad splits after threshold tuning.
-            if meeting.status == .done, meeting.systemAudioPath.nilIfEmpty != nil {
+            if nameVoicesCardVisible {
+                nameVoicesCard
+            } else if meeting.status == .done, meeting.systemAudioPath.nilIfEmpty != nil {
+                // Re-run on-device speaker detection — fixes old meetings
+                // recorded before real diarization, and bad splits after
+                // threshold tuning. Lives inside the card when it's shown.
                 HStack {
                     Spacer()
-                    Button {
-                        Task { await recordingManager.redetectSpeakers(meeting: meeting) }
-                    } label: {
-                        Label(recordingManager.diarizationEngine.isProcessing
-                              ? "Detecting speakers…" : "Detect speakers",
-                              systemImage: "person.2.wave.2")
-                    }
-                    .disabled(recordingManager.diarizationEngine.isProcessing)
-                    .help("Figure out who said what, on this Mac. Downloads a 13 MB model on first use.")
+                    detectSpeakersButton
                 }
                 .font(Theme.Typography.caption)
                 .padding(.horizontal, Theme.Metrics.pad)
@@ -488,7 +485,10 @@ struct MeetingDetailView: View {
                     TranscriptSegmentRow(
                         segment: segment,
                         isActive: segment.id == activeSegmentID,
-                        themName: meeting.themName
+                        themName: meeting.themName,
+                        meeting: meeting,
+                        playClip: playClip,
+                        onReassign: { segment.speakerLabel = $0 }
                     )
                     .onTapGesture {
                         seekTo(segment.startTime)
@@ -496,6 +496,103 @@ struct MeetingDetailView: View {
                 }
             }
             .padding(Theme.Metrics.pad)
+        }
+    }
+
+    /// The confirm-first step needs the user's action, so the card has to be
+    /// unmissable: accent border + tint, and it stays until every voice is
+    /// named (listing only the ones still unnamed) or it's dismissed.
+    private var unnamedSpeakerLabels: [String] {
+        meeting.otherSpeakerLabels.filter { meeting.speakerNames[$0] == nil }
+    }
+
+    private var nameVoicesCardVisible: Bool {
+        meeting.status == .done && meeting.otherSpeakerLabels.count >= 2
+            && !unnamedSpeakerLabels.isEmpty && !meeting.speakerPromptDismissed
+    }
+
+    private var detectSpeakersButton: some View {
+        Button {
+            Task { await recordingManager.redetectSpeakers(meeting: meeting) }
+        } label: {
+            Label(recordingManager.diarizationEngine.isProcessing
+                  ? "Detecting speakers…" : "Detect speakers",
+                  systemImage: "person.2.wave.2")
+        }
+        .disabled(recordingManager.diarizationEngine.isProcessing)
+        .help("Figure out who said what, on this Mac. Downloads a 13 MB model on first use.")
+    }
+
+    private var nameVoicesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "person.wave.2.fill")
+                    .foregroundStyle(Theme.Colors.accent)
+                Text("Heard \(meeting.otherSpeakerLabels.count) people besides you — listen and name them")
+                    .font(Theme.Typography.body)
+                    .fontWeight(.semibold)
+                Spacer()
+                detectSpeakersButton
+                    .font(Theme.Typography.caption)
+                Button {
+                    meeting.speakerPromptDismissed = true
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Theme.Colors.ink2)
+                }
+                .buttonStyle(.plain)
+                .help("Keep the neutral labels")
+            }
+            ForEach(unnamedSpeakerLabels, id: \.self) { label in
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(TranscriptSegmentRow.speakerColors[label.stableHash % TranscriptSegmentRow.speakerColors.count])
+                        .frame(width: 8, height: 8)
+                    Text(label)
+                        .font(Theme.Typography.caption)
+                        .fontWeight(.medium)
+                        .frame(width: 70, alignment: .leading)
+                    if let clip = meeting.longestSegments(for: label, count: 1).first {
+                        Button {
+                            playClip(start: clip.startTime, end: min(clip.endTime, clip.startTime + 8))
+                        } label: {
+                            Label("Play", systemImage: "play.fill")
+                                .font(Theme.Typography.caption)
+                        }
+                    }
+                    Button("Name…") { cardNamingLabel = label }
+                        .font(Theme.Typography.caption)
+                        .popover(isPresented: Binding(
+                            get: { cardNamingLabel == label },
+                            set: { if !$0 { cardNamingLabel = nil } }
+                        ), arrowEdge: .bottom) {
+                            SpeakerNamePopover(meeting: meeting, label: label, playClip: playClip)
+                        }
+                    Spacer()
+                }
+            }
+        }
+        .padding(12)
+        .background(Theme.Colors.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.Metrics.radius))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Metrics.radius)
+                .strokeBorder(Theme.Colors.accent.opacity(0.4))
+        )
+        .padding(.horizontal, Theme.Metrics.pad)
+        .padding(.top, 8)
+    }
+
+    /// Plays just this stretch of the recording — how the naming UI lets the
+    /// user hear a voice before deciding who it is.
+    private func playClip(start: TimeInterval, end: TimeInterval) {
+        clipStopTask?.cancel()
+        seekTo(start)
+        if !isPlaying { togglePlayback() }
+        clipStopTask = Task {
+            try? await Task.sleep(for: .seconds(max(1, end - start)))
+            guard !Task.isCancelled else { return }
+            if isPlaying { togglePlayback() }
         }
     }
 
@@ -589,28 +686,95 @@ struct MeetingDetailView: View {
 
 }
 
+/// The confirm-first naming popover: play short clips of the voice, then type
+/// who it is. Renaming applies to every line from that voice; a wrong grouping
+/// becomes audible the moment a clip plays.
+struct SpeakerNamePopover: View {
+    let meeting: Meeting
+    let label: String
+    let playClip: (_ start: TimeInterval, _ end: TimeInterval) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Who is this?")
+                .font(Theme.Typography.caption)
+                .fontWeight(.semibold)
+            Text("Listen to a couple of moments from this voice.")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.Colors.ink2)
+
+            ForEach(meeting.longestSegments(for: label), id: \.id) { clip in
+                Button {
+                    playClip(clip.startTime, min(clip.endTime, clip.startTime + 8))
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.fill")
+                        Text("“\(String(clip.text.prefix(40)))…”")
+                            .lineLimit(1)
+                        Spacer()
+                        Text("\(clip.formattedTimestamp) · \(Int(min(clip.endTime - clip.startTime, 8)))s")
+                            .foregroundStyle(Theme.Colors.ink2)
+                    }
+                    .font(Theme.Typography.caption)
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+                .background(Theme.Colors.chip.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            TextField("Type a name — e.g. Gürkan", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    var names = meeting.speakerNames
+                    names[label] = name.trimmingCharacters(in: .whitespaces).nilIfEmpty
+                    meeting.speakerNames = names
+                    dismiss()
+                }
+
+            Text("Renames every line from this voice. A single wrong line can be moved from the line’s right-click menu.")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.Colors.ink3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(width: 300)
+        .onAppear { name = meeting.speakerNames[label] ?? "" }
+    }
+}
+
 // MARK: - Transcript Segment Row
 
 struct TranscriptSegmentRow: View {
     let segment: TranscriptSegment
     let isActive: Bool
     var themName: String? = nil
+    /// Set for finished meetings: resolves per-speaker names and enables the
+    /// naming chip + reassign menu. Nil keeps the row read-only (snapshots).
+    var meeting: Meeting? = nil
+    var playClip: ((TimeInterval, TimeInterval) -> Void)? = nil
+    var onReassign: ((String) -> Void)? = nil
+    @State private var naming = false
 
     /// Muted adaptive palette for the other side of the call — "Me" is always
     /// the accent, so these stay deliberately quiet.
-    private static let speakerColors: [Color] = [
+    static let speakerColors: [Color] = [
         Color(lightHex: 0x6A8CAF, darkHex: 0x7FA4C6),
         Color(lightHex: 0x7A9A7A, darkHex: 0x93B593),
         Color(lightHex: 0x9A7AA0, darkHex: 0xB694BC)
     ]
 
-    /// Resolved speaker name: "Me" stays "Me"; everyone else shows the user's
-    /// assigned name (e.g. "Sam") if set, otherwise the raw label.
+    /// Resolved speaker name; the meeting's per-speaker names win, otherwise
+    /// legacy themName behavior.
     private var displayLabel: String? {
         guard let label = segment.speakerLabel else { return nil }
+        if let meeting { return meeting.displayName(forSpeaker: label) }
         if label == "Me" { return "Me" }
         return themName ?? label
     }
+
+    private var isMe: Bool { segment.speakerLabel == "Me" }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -620,13 +784,33 @@ struct TranscriptSegmentRow: View {
                 .foregroundStyle(Theme.Colors.ink2)
                 .frame(width: 40, alignment: .trailing)
 
-            // Speaker label
+            // Speaker chip — click to hear this voice and name it. The popover
+            // anchors to this chip, right where the user clicked.
             if let speaker = displayLabel {
-                Text(speaker)
-                    .font(Theme.Typography.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(speakerColor(for: speaker))
-                    .frame(width: 70, alignment: .leading)
+                if let meeting, let playClip, !isMe {
+                    Button { naming = true } label: {
+                        Text(speaker)
+                            .font(Theme.Typography.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(speakerColor(for: segment.speakerLabel ?? speaker))
+                            .underline(segment.speakerLabel.map { meeting.speakerNames[$0] == nil } ?? false,
+                                       pattern: .dot)
+                            .frame(width: 70, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Hear this voice and give it a name")
+                    .popover(isPresented: $naming, arrowEdge: .bottom) {
+                        if let label = segment.speakerLabel {
+                            SpeakerNamePopover(meeting: meeting, label: label, playClip: playClip)
+                        }
+                    }
+                } else {
+                    Text(speaker)
+                        .font(Theme.Typography.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(speakerColor(for: segment.speakerLabel ?? speaker))
+                        .frame(width: 70, alignment: .leading)
+                }
             }
 
             // Text
@@ -641,6 +825,19 @@ struct TranscriptSegmentRow: View {
             in: RoundedRectangle(cornerRadius: Theme.Metrics.radius)
         )
         .animation(.easeInOut(duration: 0.15), value: isActive)
+        .contextMenu {
+            // Fix a single misattributed line without touching the rest.
+            if let meeting, let onReassign, !isMe {
+                Menu("This line is") {
+                    Button("Me") { onReassign("Me") }
+                    ForEach(meeting.otherSpeakerLabels, id: \.self) { label in
+                        if label != segment.speakerLabel {
+                            Button(meeting.displayName(forSpeaker: label)) { onReassign(label) }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func speakerColor(for label: String) -> Color {

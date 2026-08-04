@@ -37,6 +37,7 @@ enum ProfileTest {
         testSegmenter()
         testCopilotBudget()
         testDiarizedLabel()
+        testSpeakerNames()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -533,6 +534,33 @@ enum ProfileTest {
         let two = speech(5) + silence(Seg.pauseFrames) + speech(5) + silence(Seg.pauseFrames)
         check("seg cuts one utterance at a time",
               Seg.nextCut(in: two, draining: false) == .init(dropLeading: 0, take: (5 + Seg.padFrames) * Seg.frame))
+    }
+
+    @MainActor
+    static func testSpeakerNames() {
+        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        guard let container = try? ModelContainer(for: schema, configurations: [config]) else {
+            check("speaker-names container builds", false); return
+        }
+        let ctx = ModelContext(container)
+        let m = Meeting(title: "t")
+        ctx.insert(m)
+        for (start, dur, label) in [(0.0, 5.0, "Speaker 1"), (10.0, 2.0, "Speaker 2"),
+                                    (20.0, 9.0, "Speaker 1"), (30.0, 1.0, "Me")] {
+            let s = TranscriptSegment(startTime: start, endTime: start + dur, text: "x", speakerLabel: label)
+            ctx.insert(s); s.meeting = m
+        }
+        m.themName = "The Others"
+        check("legacy fallback intact", m.displayName(forSpeaker: "Speaker 1") == "The Others")
+        m.speakerNames = ["Speaker 1": "Gürkan"]
+        check("named label resolves", m.displayName(forSpeaker: "Speaker 1") == "Gürkan")
+        check("unnamed label stays raw once naming started", m.displayName(forSpeaker: "Speaker 2") == "Speaker 2")
+        check("me is me", m.displayName(forSpeaker: "Me") == "Me")
+        check("fresh meeting has no names", Meeting(title: "u").speakerNames.isEmpty)
+        check("other labels ordered", m.otherSpeakerLabels == ["Speaker 1", "Speaker 2"])
+        check("longest segments sorted", m.longestSegments(for: "Speaker 1").map(\.startTime) == [20.0, 0.0])
+        check("participants summary", m.participantsSummary == "Gürkan")
     }
 
     static func testDiarizedLabel() {
