@@ -158,8 +158,13 @@ enum HelpShots {
                 .environment(rm).environment(rm.profileStore).environment(AppSession())
                 .modelContainer(container))
 
+        // Reuses the dashboard shot just written as the attached screenshot, so
+        // the guide shows the sheet the way a user meets it.
+        shot("bug-report.png", size: .init(width: 460, height: 470),
+             BugReportSheet(screenshot: NSImage(contentsOf: dir.appendingPathComponent("dashboard.png"))))
+
         print("help-shots: wrote \(made.count) → \(dir.path)")
-        exit(made.count >= 9 ? 0 : 1)
+        exit(made.count >= 10 ? 0 : 1)
     }
 
     /// Real-window offscreen render: lay out, pump the runloop so SwiftUI

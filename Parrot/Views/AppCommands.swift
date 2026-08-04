@@ -15,6 +15,8 @@ extension Notification.Name {
     static let parrotImportAudio = Notification.Name("parrotImportAudio")
     /// Edit → Find asks the sidebar to focus its search field.
     static let parrotFocusSearch = Notification.Name("parrotFocusSearch")
+    /// Help → Report a Bug… opens the report sheet (same as the corner button).
+    static let parrotReportBug = Notification.Name("parrotReportBug")
 }
 
 // MARK: - Shared meeting actions
@@ -23,7 +25,7 @@ extension Notification.Name {
 /// and the detail toolbar. Exports write to Downloads and reveal in Finder.
 @MainActor
 enum MeetingActions {
-    static let repoURL = "https://github.com/turantekin/Parrot"
+    nonisolated static let repoURL = "https://github.com/turantekin/Parrot"
 
     static func exportTXT(_ meeting: Meeting) {
         write(ExportService.exportToTXT(meeting: meeting), for: meeting, ext: "txt")
@@ -168,7 +170,10 @@ struct ParrotCommands: Commands {
             Button("Parrot on GitHub") {
                 MeetingActions.open(MeetingActions.repoURL)
             }
-            Button("Report an Issue…") {
+            Button("Report a Bug…") {
+                NotificationCenter.default.post(name: .parrotReportBug, object: nil)
+            }
+            Button("Browse Existing Issues") {
                 MeetingActions.open("\(MeetingActions.repoURL)/issues")
             }
         }

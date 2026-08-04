@@ -18,7 +18,7 @@ final class UpdateChecker {
     var available: Release?
 
     /// "dev" when running an unbundled `swift build` binary — those never nag.
-    static var currentVersion: String {
+    nonisolated static var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 

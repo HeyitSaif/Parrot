@@ -33,6 +33,7 @@ enum ProfileTest {
         testPermissionFlow()
         testMicWatchdog()
         testModelFolderMatch()
+        testBugReport()
         testSegmenter()
         testCopilotBudget()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
@@ -458,6 +459,40 @@ enum ProfileTest {
         }
         check("complete model folder is accepted", TranscriptionEngine.isCompleteModelFolder(partial))
         try? FileManager.default.removeItem(at: partial)
+    }
+
+    // The pre-filled GitHub issue behind the corner bug button.
+    static func testBugReport() {
+        check("report body trims the user text",
+              BugReport.body(text: "  it crashed  ", includeDiagnostics: false,
+                             includeScreenshot: false) == "it crashed")
+        let full = BugReport.body(text: "x", includeDiagnostics: true, includeScreenshot: true)
+        check("report body marks the paste spot", full.contains("⌘V"))
+        check("report body carries diagnostics", full.contains("Parrot "))
+        check("report body omits the paste spot when nothing is attached",
+              !BugReport.body(text: "x", includeDiagnostics: true,
+                              includeScreenshot: false).contains("⌘V"))
+        check("report body omits diagnostics when declined",
+              !BugReport.body(text: "x", includeDiagnostics: false,
+                              includeScreenshot: false).contains("macOS"))
+        // Diagnostics are a fixed two lines: anything else means something new
+        // (and possibly identifying) started riding along.
+        check("diagnostics stay two lines", BugReport.diagnostics().count == 2)
+
+        let url = BugReport.issueURL(kind: .idea, title: "Tabs & spaces #1", body: "one\ntwo")
+        check("issue url targets the repo's new-issue form",
+              url?.absoluteString.hasPrefix("https://github.com/turantekin/Parrot/issues/new?") == true)
+        check("issue url labels an idea as enhancement",
+              url?.absoluteString.contains("labels=enhancement") == true)
+        check("issue url labels a bug as bug",
+              BugReport.issueURL(kind: .bug, title: "t", body: "b")?
+                .absoluteString.contains("labels=bug") == true)
+        // The ampersand must not survive raw, or it starts a new query param
+        // and the body is silently truncated.
+        check("issue url escapes ampersands and hashes in the title",
+              url?.absoluteString.contains("Tabs%20%26%20spaces%20%231") == true)
+        check("issue url escapes newlines in the body",
+              url?.absoluteString.contains("one%0Atwo") == true)
     }
 
     // The live-loop utterance segmenter that replaced fixed 2 s chunks.

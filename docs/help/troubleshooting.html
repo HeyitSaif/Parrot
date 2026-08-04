@@ -48,13 +48,23 @@ the normal report on it. Only a meeting that never captured a word is marked
 failed.</p>
 
 <h2>When you report a bug</h2>
-<p>Parrot can produce a diagnostic log that makes audio problems findable.
+<img src="img/bug-report.png" alt="The bug report sheet">
+<p>Click the little ladybug in the bottom right corner of the window, or use
+<strong>Help → Report a Bug…</strong>. Write what happened, and Parrot fills
+in the rest: the version you're on, your model and transcription settings,
+and optionally a picture of the window. Nothing is sent anywhere by itself.
+The button opens a pre-filled issue on GitHub, you look it over, and you post
+it. The screenshot is a picture of Parrot's window only, never your whole
+screen, and it goes on your clipboard so you paste it in yourself with
+<kbd>⌘V</kbd>. Give it a glance first if the window was showing someone's
+transcript.</p>
+<p>The same sheet takes ideas and feature requests, not just bugs.</p>
+<p>For audio problems specifically, a diagnostic log makes them findable.
 Run the app with <code>PARROT_AUDIO_DEBUG=1</code>, reproduce the problem,
 then grab the log with:</p>
 <p><code>log show --last 10m --predicate 'subsystem == "com.uygar.parrot"'</code></p>
-<p>Attach that to a
-<a href="https://github.com/turantekin/Parrot/issues">GitHub issue</a> and
-you've just made someone's debugging day much easier.</p>
+<p>Paste that into the issue too and you've just made someone's debugging day
+much easier.</p>
 
 </body>
 </html>
