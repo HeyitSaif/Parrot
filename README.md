@@ -25,6 +25,7 @@ If you find this useful or just think the idea is cool, give it a star. It'll ma
 ## What It Does
 
 - **Records system audio + microphone** — Captures what everyone says in a meeting (via ScreenCaptureKit) plus your own voice
+- **Knows who said what** — On-device speaker detection tells the people on the call apart. Name each voice once from short clips, and the transcript, reports, and coaching all use real names. Turn on **Remember voices** and Parrot suggests who's talking on the next call. Free and fully local. (Meetily charges $10/month for diarization; Anarlog $15/month, via the cloud.)
 - **Real-time transcription, your choice of engine** — On-device WhisperKit by default (private, free). Or bring your own key for **Groq** (big-model accuracy for ~$0.04/hr) or **Deepgram** (true streaming — words appear ~300 ms after they're spoken). Cloud engines fall back to on-device automatically if anything fails mid-call
 - **Transcripts read like people talk** — Lines land as whole sentences when the speaker pauses (not chopped 2-second fragments), with a live preview filling in while they're still mid-sentence. Silence is never transcribed
 - **Post-call polish pass (optional)** — After you hit Stop, re-transcribe the whole call through Groq's large model and regenerate the reports from the cleaner text, for pennies
@@ -206,7 +207,7 @@ Contributing note: the project is generated with **xcodegen** — if you add or 
 
 Things I want to add but haven't figured out yet:
 
-- [ ] **Real speaker diarization** — integrate [SpeakerKit](https://github.com/argmaxinc/argmax-oss-swift) so it actually knows who's talking
+- [x] **Real speaker diarization** — done! On-device via [FluidAudio](https://github.com/FluidInference/FluidAudio): Parrot tells the people on the call apart, you name each voice from short clips, and (opt-in) it remembers voices for next time. Free, on your Mac
 - [x] **Local LLM for summaries & copilot** — done! Point the copilot and reports at **Ollama** and every AI feature runs on your Mac, no key, no cloud. (An in-process MLX model, skipping Ollama entirely, may still come one day)
 - [ ] **Calendar integration** — auto-name meetings based on what's on my calendar
 - [ ] **Keyword bookmarks** — mark important moments during a recording
