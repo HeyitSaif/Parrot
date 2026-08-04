@@ -33,7 +33,6 @@ enum ProfileTest {
         testPermissionFlow()
         testMicWatchdog()
         testModelFolderMatch()
-        testNonSpeechNoise()
         testBugReport()
         testSegmenter()
         testCopilotBudget()
@@ -460,29 +459,6 @@ enum ProfileTest {
         }
         check("complete model folder is accepted", TranscriptionEngine.isCompleteModelFolder(partial))
         try? FileManager.default.removeItem(at: partial)
-    }
-
-    // Loud non-speech (typing) narrated as confident gibberish. Values are the
-    // real ones from the 2026-08-01 dogfood call.
-    static func testNonSpeechNoise() {
-        typealias E = TranscriptionEngine
-        check("noise dropped when both signals agree",
-              E.isNonSpeechNoise(confidence: -0.94, noSpeechProb: 0.91))
-        check("noise dropped at the observed junk floor",
-              E.isNonSpeechNoise(confidence: -0.72, noSpeechProb: 0.65))
-        // The three real lines from that call must all survive.
-        check("clear speech kept", !E.isNonSpeechNoise(confidence: -0.03, noSpeechProb: 0.02))
-        check("ordinary speech kept", !E.isNonSpeechNoise(confidence: -0.27, noSpeechProb: 0.20))
-        check("the borderline real line is kept",
-              !E.isNonSpeechNoise(confidence: -0.47, noSpeechProb: 0.80))
-        // Either signal alone is not enough — that's what protects real speech
-        // in a noisy room.
-        check("unsure but speech-like is kept",
-              !E.isNonSpeechNoise(confidence: -0.90, noSpeechProb: 0.10))
-        check("non-speech but confident is kept",
-              !E.isNonSpeechNoise(confidence: -0.10, noSpeechProb: 0.95))
-        check("cloud backends without signals are never dropped",
-              !E.isNonSpeechNoise(confidence: nil, noSpeechProb: nil))
     }
 
     // The pre-filled GitHub issue behind the corner bug button.

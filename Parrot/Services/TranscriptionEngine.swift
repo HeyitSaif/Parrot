@@ -86,16 +86,6 @@ final class TranscriptionEngine {
         case error(String)
     }
 
-    /// One decoded chunk plus the two quality signals Whisper reports about it.
-    /// Cloud backends supply neither, so both are optional.
-    struct DecodedPiece {
-        let text: String
-        /// Mean avgLogprob: 0 is certain, more negative is less sure.
-        let confidence: Float?
-        /// Whisper's own "this audio isn't speech" probability.
-        let noSpeechProb: Float?
-    }
-
     struct TranscriptionResult {
         let text: String
         let source: AudioSource
@@ -462,8 +452,10 @@ final class TranscriptionEngine {
         // sample offsets, so suppress Whisper's special + timestamp tokens — they were
         // leaking into the live line as "<|0.00|> ... <|1.00|>" gibberish. The
         // thresholds trip a temperature fallback that breaks Whisper's repetition loops
-        // (the "What's your name?" ×N hallucination on near-silent / noisy chunks), and
-        // noSpeechThreshold drops silence instead of hallucinating over it.
+        // (the "What's your name?" ×N hallucination on near-silent / noisy chunks).
+        // noSpeechThreshold is set for the day it works: WhisperKit hardcodes
+        // noSpeechProb to 0 (TextDecoder.swift TODO), so it currently gates nothing —
+        // see "Why there is no confidence-based noise filter" below.
         decodeOptions.skipSpecialTokens = true
         decodeOptions.withoutTimestamps = true
         decodeOptions.compressionRatioThreshold = 2.4
@@ -565,26 +557,22 @@ final class TranscriptionEngine {
 
                     // On-device decode — the default path, and the per-chunk
                     // fallback when a cloud backend hiccups (never lose a chunk).
-                    func decodeLocally() async throws -> [DecodedPiece] {
+                    func decodeLocally() async throws -> [(text: String, confidence: Float?)] {
                         guard let whisperKit = self.whisperKit else { return [] }
                         // No interim streaming here anymore: the rolling preview is
                         // the live text, and re-streaming the same sentence from
                         // word one during the commit decode made its tail appear
                         // three times over (preview, re-stream, committed bubble —
                         // the "repeated 3 times" dry-run report, 2026-08-01).
-                        func decode(_ options: DecodingOptions) async throws -> [DecodedPiece] {
+                        func decode(_ options: DecodingOptions) async throws -> [(text: String, confidence: Float?)] {
                             let result = try await whisperKit.transcribe(
                                 audioArray: chunk,
                                 decodeOptions: options
                             )
                             return result.map { transcription in
-                                let segments = transcription.segments
-                                let count = Float(max(segments.count, 1))
-                                return DecodedPiece(
-                                    text: transcription.text,
-                                    confidence: segments.map(\.avgLogprob).reduce(0, +) / count,
-                                    noSpeechProb: segments.map(\.noSpeechProb).reduce(0, +) / count
-                                )
+                                (transcription.text,
+                                 transcription.segments.map(\.avgLogprob).reduce(0, +)
+                                    / Float(max(transcription.segments.count, 1)))
                             }
                         }
 
@@ -612,13 +600,11 @@ final class TranscriptionEngine {
                     }
 
                     do {
-                        let pieces: [DecodedPiece]
+                        let pieces: [(text: String, confidence: Float?)]
                         if backend == .groq, let groqKey {
                             do {
-                                pieces = [DecodedPiece(
-                                    text: try await GroqTranscriber.transcribe(
-                                        samples: chunk, language: language, apiKey: groqKey),
-                                    confidence: nil, noSpeechProb: nil)]
+                                pieces = [(try await GroqTranscriber.transcribe(
+                                    samples: chunk, language: language, apiKey: groqKey), nil)]
                             } catch {
                                 NSLog("Parrot: Groq transcription failed — \(error.localizedDescription)")
                                 await MainActor.run {
@@ -633,13 +619,12 @@ final class TranscriptionEngine {
                         for piece in pieces {
                             let cleaned = Self.cleaned(piece.text)
                             if Self.loopTrace {
-                                // Both quality signals are printed so a real
-                                // call can be used to re-calibrate the noise
-                                // thresholds against actual numbers.
-                                print(String(format: "TRACE %@ [%.2f-%.2f] logprob=%@ nospeech=%@ raw=%@",
+                                // logprob is printed so a real call can be used
+                                // to study the noise/quality question with
+                                // numbers instead of guesses.
+                                print(String(format: "TRACE %@ [%.2f-%.2f] logprob=%@ raw=%@",
                                              source.label, startTime, endTime,
                                              piece.confidence.map { String(format: "%.2f", $0) } ?? "-",
-                                             piece.noSpeechProb.map { String(format: "%.2f", $0) } ?? "-",
                                              piece.text.isEmpty ? "<empty>" : piece.text))
                             }
                             guard !cleaned.isEmpty else { continue }
@@ -647,14 +632,6 @@ final class TranscriptionEngine {
                             // "Okay.") flooded real transcripts — drop them
                             // when the chunk was near-silent.
                             guard !Self.isLikelyHallucination(cleaned, energy: energy) else { continue }
-                            // Loud non-speech (typing next to the mic) is the
-                            // other flavour: energetic, so the gate above lets
-                            // it through, and Whisper narrates it confidently.
-                            guard !Self.isNonSpeechNoise(confidence: piece.confidence,
-                                                         noSpeechProb: piece.noSpeechProb) else {
-                                if Self.loopTrace { print("TRACE \(source.label) dropped as non-speech noise") }
-                                continue
-                            }
                             // Prompt leak: the glossary prompt comes back as
                             // "transcription", alone or prefixed onto real
                             // speech — keep the speech, drop only the echo.
@@ -895,29 +872,29 @@ final class TranscriptionEngine {
         "uh", "um", "the end", "subtitles by", "1", "2",
     ]
 
-    /// True when Whisper narrated something that wasn't speech — the confident
-    /// gibberish (often in a random language under auto-detect) that a keyboard
-    /// clattering next to the mic produces. Energy can't catch these: typing is
-    /// loud, so `isLikelyHallucination`'s silence gate waves them through.
-    ///
-    /// Two signals must agree, which is what keeps real speech safe:
-    /// - Whisper's own noSpeechProb says the audio isn't speech, and
-    /// - the decode was unsure.
-    ///
-    /// Thresholds from the 2026-08-01 dogfood call: junk lines scored -0.50 to
-    /// -0.94 mean avgLogprob, real speech -0.03 to -0.27, with one real line at
-    /// -0.47 — so the logprob cut sits just below every real line seen, and the
-    /// noSpeechProb condition is what protects a real line that dips lower.
-    /// That's one call's worth of evidence: PARROT_LOOP_TRACE=1 now prints both
-    /// numbers per chunk, so re-calibrate on a few more real calls before
-    /// tightening this. Whisper's built-in rule can't do it for us — the decode
-    /// options rescue anything above logProbThreshold (-1.0), and raising that
-    /// globally would trigger temperature-fallback re-decodes on ordinary
-    /// speech and slow the live loop.
-    static func isNonSpeechNoise(confidence: Float?, noSpeechProb: Float?) -> Bool {
-        guard let confidence, let noSpeechProb else { return false }
-        return noSpeechProb > 0.6 && confidence < -0.5
-    }
+    // MARK: Why there is no confidence-based noise filter
+    //
+    // Typing next to the mic makes Whisper narrate confident nonsense, and the
+    // obvious fix — drop segments below some avgLogprob floor — is a trap. Two
+    // findings from the real store (9,301 stored segments, 2026-08-04):
+    //
+    // 1. avgLogprob tracks LANGUAGE, not junk. Segments containing Turkish
+    //    characters average -1.43; plain-latin segments average -0.29, and
+    //    every one of the 115 segments scoring -Inf is real Turkish speech.
+    //    Any floor that catches junk (junk sat at -0.50..-0.94 on the
+    //    2026-08-01 call, real English at -0.03..-0.47) would silently delete
+    //    most of a bilingual user's transcript. Never ship a global floor.
+    // 2. noSpeechProb — the signal that would actually separate speech from
+    //    keyboard clatter — is hardcoded to 0 in WhisperKit
+    //    (TextDecoder.swift: "let noSpeechProb: Float = 0 // TODO"). It is
+    //    always 0.0 in traces, so `decodeOptions.noSpeechThreshold` below is
+    //    inert too, and no filter can lean on it until upstream implements it.
+    //
+    // What could work later: compare a segment against the median confidence
+    // for its own language within the same call (junk is an outlier per
+    // language, whereas a whole language is not), or gate on acoustics before
+    // decoding. Both need per-segment language, which isn't stored yet.
+    // PARROT_LOOP_TRACE=1 prints per-chunk logprob for exactly this work.
 
     /// True when a decoded chunk is almost certainly invented: punctuation-only
     /// text, or a known silence-hallucination phrase produced from a chunk that
