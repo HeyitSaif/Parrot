@@ -8,6 +8,36 @@ import AVFoundation
 /// verify the output is clean (no "<|...|>" tokens, no repetition loops) without
 /// having to record live. Run with:
 ///   Parrot --transcribe-test <audio.caf> <modelFolder>
+/// `--diarize-test <audio>`: run real diarization on a file and print the
+/// clusters. Downloads models on first use (network); deliberately NOT part
+/// of `make test`, which must stay offline.
+enum DiarizeTest {
+    static func run(audioPath: String) {
+        let sem = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                let engine = DiarizationEngine()
+                let output = try await engine.diarize(audioURL: URL(fileURLWithPath: audioPath))
+                var totals: [String: TimeInterval] = [:]
+                for segment in output.segments {
+                    totals[segment.speakerLabel, default: 0] += segment.endTime - segment.startTime
+                }
+                for (label, seconds) in totals.sorted(by: { $0.value > $1.value }) {
+                    print("\(label): \(Int(seconds))s speech, embedding \(output.embeddings[label]?.count ?? 0) dims")
+                }
+                print(totals.count >= 2
+                      ? "DIARIZE OK — \(totals.count) speakers"
+                      : "DIARIZE WEAK — \(totals.count) speaker(s)")
+                exit(totals.isEmpty ? 1 : 0)
+            } catch {
+                print("DIARIZE FAIL: \(error)")
+                exit(1)
+            }
+        }
+        sem.wait()
+    }
+}
+
 enum TranscribeTest {
     static func run(audioPath: String, modelFolder: String) {
         let sem = DispatchSemaphore(value: 0)
