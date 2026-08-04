@@ -60,7 +60,9 @@ struct OnboardingView: View {
             }
             .padding(Theme.Metrics.pad)
         }
-        .frame(width: 500, height: 540)
+        // 600, not 540: the model step lists five models now, and at 540 the
+        // intro line truncated and the Back/Continue row was clipped.
+        .frame(width: 500, height: 600)
     }
 
     // MARK: - Step 1: Welcome
@@ -168,6 +170,16 @@ struct OnboardingView: View {
 
     // MARK: - Step 3: Model Download
 
+    /// Same five the Settings picker offers, same order. Sizes are what the
+    /// hub actually serves, not what the folder is called.
+    private static let modelChoices: [(tag: String, size: String, blurb: String)] = [
+        ("tiny", "~40 MB", "Fastest, basic accuracy"),
+        ("base", "~140 MB", "Good balance of speed and accuracy"),
+        ("small", "~460 MB", "Better accuracy, moderate speed"),
+        ("large-v3-v20240930_626MB", "~626 MB", "Near-best accuracy, light on memory"),
+        ("large-v3-turbo", "~1.6 GB", "Best accuracy, needs more RAM"),
+    ]
+
     private var modelStep: some View {
         VStack(spacing: 24) {
             Spacer()
@@ -179,37 +191,21 @@ struct OnboardingView: View {
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.Colors.ink2)
                 .multilineTextAlignment(.center)
+                // Without this the VStack compresses it to one truncated line
+                // ("…for transcription….") — it lost to the cards for height.
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 380)
 
             VStack(spacing: 8) {
-                ModelOption(
-                    name: "tiny",
-                    size: "~40 MB",
-                    description: "Fastest, basic accuracy",
-                    isSelected: selectedModel == "tiny",
-                    action: { selectModel("tiny") }
-                )
-                ModelOption(
-                    name: "base",
-                    size: "~140 MB",
-                    description: "Good balance of speed and accuracy",
-                    isSelected: selectedModel == "base",
-                    action: { selectModel("base") }
-                )
-                ModelOption(
-                    name: "small",
-                    size: "~460 MB",
-                    description: "Better accuracy, moderate speed",
-                    isSelected: selectedModel == "small",
-                    action: { selectModel("small") }
-                )
-                ModelOption(
-                    name: "large-v3-turbo",
-                    size: "~1.5 GB",
-                    description: "Best accuracy, needs more RAM",
-                    isSelected: selectedModel == "large-v3-turbo",
-                    action: { selectModel("large-v3-turbo") }
-                )
+                ForEach(Self.modelChoices, id: \.tag) { choice in
+                    ModelOption(
+                        tag: choice.tag,
+                        size: choice.size,
+                        description: choice.blurb,
+                        isSelected: selectedModel == choice.tag,
+                        action: { selectModel(choice.tag) }
+                    )
+                }
             }
             .frame(maxWidth: 380)
 
@@ -304,7 +300,9 @@ struct PermissionRow: View {
 // MARK: - Model Option
 
 struct ModelOption: View {
-    let name: String
+    /// The stored @AppStorage value; the card shows its friendly name, so the
+    /// hub's spelling ("large-v3-v20240930_626MB") never reaches a user's eyes.
+    let tag: String
     let size: String
     let description: String
     let isSelected: Bool
@@ -314,7 +312,7 @@ struct ModelOption: View {
         Button(action: action) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
+                    Text(TranscriptionEngine.displayName(for: tag))
                         .font(Theme.Typography.cardTitle)
                     Text("\(description) (\(size))")
                         .font(Theme.Typography.caption)
