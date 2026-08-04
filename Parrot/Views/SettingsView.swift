@@ -66,6 +66,7 @@ struct SettingsView: View {
     @AppStorage(TranscriptionBackend.defaultsKey) private var transcriptionBackend = TranscriptionBackend.local.rawValue
     @AppStorage("polishAfterCall") private var polishAfterCall = false
     @State private var section: SettingsSection = .general
+    @State private var diarizerDownloading = false
     @State private var showFileImporter = false
     /// There's no Save button — @AppStorage persists on every change. This
     /// drives a small transient "Saved" chip so that's visible, debounced so
@@ -280,6 +281,26 @@ struct SettingsView: View {
                         await recordingManager.transcriptionEngine.loadModel(selectedModel)
                     }
                 }
+            }
+
+            Section("Speaker Detection") {
+                if DiarizationEngine.modelsInstalled {
+                    LabeledContent("Models", value: "Downloaded (~34 MB)")
+                    Button("Remove Models") { DiarizationEngine.removeModels() }
+                } else {
+                    LabeledContent("Models", value: "Not downloaded")
+                    Button(diarizerDownloading ? "Downloading…" : "Download (~34 MB)") {
+                        diarizerDownloading = true
+                        Task {
+                            try? await recordingManager.diarizationEngine.ensureModels()
+                            diarizerDownloading = false
+                        }
+                    }
+                    .disabled(diarizerDownloading)
+                }
+                Text("Tells apart the different people on a call, on this Mac. Downloads automatically after a call if missing. Uses pyannote models via FluidAudio (CC-BY-4.0).")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Colors.ink2)
             }
 
             Section("Language") {

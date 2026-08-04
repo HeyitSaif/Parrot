@@ -605,6 +605,13 @@ final class RecordingManager {
 
     // MARK: - Post-Processing
 
+    /// Re-runs diarization on a finished meeting (audio is retained). Safe to
+    /// call repeatedly; refuses the meeting currently being recorded.
+    func redetectSpeakers(meeting: Meeting) async {
+        guard !(isRecording && meeting.id == currentMeeting?.id) else { return }
+        await postProcess(meeting: meeting)
+    }
+
     private func postProcess(meeting: Meeting) async {
         // Status stays .processing here — the calling chain flips .done after
         // the post-call REPORT finishes, so the UI can say "writing report…"
