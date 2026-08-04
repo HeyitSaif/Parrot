@@ -73,6 +73,9 @@ enum HelpShots {
             "copilotEnabled": true,
             "copilotProvider": "claude",
             "whisperModel": "large-v3-turbo",
+            // Onboarding renders whichever step this points at; 2 is the
+            // model picker, the only one worth a picture in the guide.
+            "onboardingStep": 2,
         ])
 
         // A live-looking meeting for the call screen.
@@ -158,13 +161,20 @@ enum HelpShots {
                 .environment(rm).environment(rm.profileStore).environment(AppSession())
                 .modelContainer(container))
 
+        // The real sheet geometry (500x540): if the model list ever outgrows
+        // it, this shot shows the clipping before a user does.
+        shot("onboarding-model.png", size: .init(width: 500, height: 600),
+             OnboardingView(isPresented: .constant(true))
+                .environment(rm).environment(rm.profileStore)
+                .modelContainer(container))
+
         // Reuses the dashboard shot just written as the attached screenshot, so
         // the guide shows the sheet the way a user meets it.
         shot("bug-report.png", size: .init(width: 460, height: 470),
              BugReportSheet(screenshot: NSImage(contentsOf: dir.appendingPathComponent("dashboard.png"))))
 
         print("help-shots: wrote \(made.count) → \(dir.path)")
-        exit(made.count >= 10 ? 0 : 1)
+        exit(made.count >= 11 ? 0 : 1)
     }
 
     /// Real-window offscreen render: lay out, pump the runloop so SwiftUI

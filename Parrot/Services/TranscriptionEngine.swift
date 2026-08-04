@@ -452,8 +452,10 @@ final class TranscriptionEngine {
         // sample offsets, so suppress Whisper's special + timestamp tokens — they were
         // leaking into the live line as "<|0.00|> ... <|1.00|>" gibberish. The
         // thresholds trip a temperature fallback that breaks Whisper's repetition loops
-        // (the "What's your name?" ×N hallucination on near-silent / noisy chunks), and
-        // noSpeechThreshold drops silence instead of hallucinating over it.
+        // (the "What's your name?" ×N hallucination on near-silent / noisy chunks).
+        // noSpeechThreshold is set for the day it works: WhisperKit hardcodes
+        // noSpeechProb to 0 (TextDecoder.swift TODO), so it currently gates nothing —
+        // see "Why there is no confidence-based noise filter" below.
         decodeOptions.skipSpecialTokens = true
         decodeOptions.withoutTimestamps = true
         decodeOptions.compressionRatioThreshold = 2.4
@@ -617,8 +619,12 @@ final class TranscriptionEngine {
                         for piece in pieces {
                             let cleaned = Self.cleaned(piece.text)
                             if Self.loopTrace {
-                                print(String(format: "TRACE %@ [%.2f-%.2f] raw=%@",
+                                // logprob is printed so a real call can be used
+                                // to study the noise/quality question with
+                                // numbers instead of guesses.
+                                print(String(format: "TRACE %@ [%.2f-%.2f] logprob=%@ raw=%@",
                                              source.label, startTime, endTime,
+                                             piece.confidence.map { String(format: "%.2f", $0) } ?? "-",
                                              piece.text.isEmpty ? "<empty>" : piece.text))
                             }
                             guard !cleaned.isEmpty else { continue }
@@ -865,6 +871,30 @@ final class TranscriptionEngine {
         "thank you for watching", "thanks for watching", "hmm", "mm-hmm",
         "uh", "um", "the end", "subtitles by", "1", "2",
     ]
+
+    // MARK: Why there is no confidence-based noise filter
+    //
+    // Typing next to the mic makes Whisper narrate confident nonsense, and the
+    // obvious fix — drop segments below some avgLogprob floor — is a trap. Two
+    // findings from the real store (9,301 stored segments, 2026-08-04):
+    //
+    // 1. avgLogprob tracks LANGUAGE, not junk. Segments containing Turkish
+    //    characters average -1.43; plain-latin segments average -0.29, and
+    //    every one of the 115 segments scoring -Inf is real Turkish speech.
+    //    Any floor that catches junk (junk sat at -0.50..-0.94 on the
+    //    2026-08-01 call, real English at -0.03..-0.47) would silently delete
+    //    most of a bilingual user's transcript. Never ship a global floor.
+    // 2. noSpeechProb — the signal that would actually separate speech from
+    //    keyboard clatter — is hardcoded to 0 in WhisperKit
+    //    (TextDecoder.swift: "let noSpeechProb: Float = 0 // TODO"). It is
+    //    always 0.0 in traces, so `decodeOptions.noSpeechThreshold` below is
+    //    inert too, and no filter can lean on it until upstream implements it.
+    //
+    // What could work later: compare a segment against the median confidence
+    // for its own language within the same call (junk is an outlier per
+    // language, whereas a whole language is not), or gate on acoustics before
+    // decoding. Both need per-segment language, which isn't stored yet.
+    // PARROT_LOOP_TRACE=1 prints per-chunk logprob for exactly this work.
 
     /// True when a decoded chunk is almost certainly invented: punctuation-only
     /// text, or a known silence-hallucination phrase produced from a chunk that
