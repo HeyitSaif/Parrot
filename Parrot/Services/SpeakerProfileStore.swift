@@ -6,10 +6,13 @@ import SwiftData
 /// Suggestion-only by design: nothing here writes a speaker name; the user
 /// confirms in the naming popover (confirm-first rule in the design spec).
 enum SpeakerProfileStore {
-    /// Cosine similarity floor for "sounds like X" suggestions. Research band
-    /// for WeSpeaker mean embeddings is 0.5–0.6; calibrate on real calls.
+    /// Cosine similarity floor for "sounds like X" suggestions. Calibrated on
+    /// the real Aug 3 call (split-half): same voice across independent halves
+    /// = 0.96, different voices = 0.50–0.53 — our per-meeting MEAN embeddings
+    /// score far higher than the generic 0.5–0.6 research band, so 0.7 keeps
+    /// a ±0.2 margin against both false matches and misses.
     // ponytail: single knob, used only by match(_:in:).
-    static let suggestThreshold: Float = 0.55
+    static let suggestThreshold: Float = 0.7
 
     static func cosine(_ a: [Float], _ b: [Float]) -> Float {
         guard a.count == b.count, !a.isEmpty else { return 0 }
