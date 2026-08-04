@@ -16,7 +16,6 @@ struct ContentView: View {
     /// Grabbed when the button is pressed, before the sheet covers the thing
     /// the user wants to show us.
     @State private var reportScreenshot: NSImage?
-    private let updateChecker = UpdateChecker.shared
 
     var body: some View {
         NavigationSplitView {
@@ -64,16 +63,12 @@ struct ContentView: View {
                     ImportingBanner(progress: progress)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                if let release = updateChecker.available, !recordingManager.isRecording {
-                    UpdateBanner(release: release)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
             }
             .padding(.top, 12)
         }
         // Always reachable, except mid-call: a live recording is the one time
         // the window is nobody else's business (and it keeps the button out of
-        // call screenshots), same rule the update banner follows.
+        // call screenshots).
         .overlay(alignment: .bottomTrailing) {
             if !recordingManager.isRecording {
                 BugReportButton { presentBugReport() }
@@ -102,7 +97,6 @@ struct ContentView: View {
             if case .success(let url) = result { startImport(url) }
         }
         .task {
-            updateChecker.checkIfDue()
             guard !hasLoadedModel else { return }
             hasLoadedModel = true
             await recordingManager.prepare(modelContext: modelContext)
@@ -141,45 +135,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.Colors.canvas)
-    }
-}
-
-/// "A newer Parrot exists" — one line, one Download click, dismissible.
-/// Hidden during recording; the update will still be there after the call.
-private struct UpdateBanner: View {
-    let release: UpdateChecker.Release
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.down.circle.fill")
-                .foregroundStyle(Theme.Colors.accent)
-            Text("Parrot \(release.version) is available")
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.Colors.ink)
-            Button("Download") {
-                MeetingActions.open(release.dmgURL ?? release.pageURL)
-            }
-            .controlSize(.small)
-            Button("What's New") {
-                MeetingActions.open(release.pageURL)
-            }
-            .buttonStyle(.link)
-            .font(Theme.Typography.secondary)
-            Button {
-                UpdateChecker.shared.skipAvailable()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.Colors.ink3)
-            }
-            .buttonStyle(.plain)
-            .help("Skip this version")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Theme.Colors.canvas, in: RoundedRectangle(cornerRadius: Theme.Metrics.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.radius).strokeBorder(Theme.Colors.line))
-        .shadow(color: .black.opacity(0.1), radius: 8, y: 2)
     }
 }
 

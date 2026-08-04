@@ -26,7 +26,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 APP="$DIST/Parrot.app"
 PLIST="$APP/Contents/Info.plist"
-BUILD_NUM="$(date +%Y%m%d%H%M)" # CFBundleVersion must be unique per submission
+# CFBundleVersion must be unique per notarization submission, hence a timestamp.
+# Sparkle also orders updates by it, so releases must be built in ascending
+# order — build an older version *after* a newer one and installs will correctly
+# refuse to "update" backwards. (Caught while testing the update cycle: a 0.13.1
+# built two minutes after 0.14.0 was, by this measure, newer.)
+BUILD_NUM="$(date +%Y%m%d%H%M)"
 cd "$ROOT"
 
 notarize() { # notarize <file>
@@ -64,6 +69,15 @@ plutil -replace LSMinimumSystemVersion    -string "14.0"            "$PLIST"
 cp -R .build/release/*.bundle "$APP/Contents/Resources/"
 cp Parrot/Fonts/*.otf "$APP/Contents/Resources/"
 
+# Sparkle is a binary XCFramework — swift build links it but never embeds it.
+mkdir -p "$APP/Contents/Frameworks"
+cp -R .build/release/Sparkle.framework "$APP/Contents/Frameworks/"
+# Sparkle's downloader XPC service is only needed by apps WITHOUT
+# com.apple.security.network.client; we have it, so the service goes unused.
+# Shipping an unused network-capable helper in a privacy app is worse than
+# deleting it, and it keeps the signing surface to what we actually run.
+rm -rf "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+
 echo "==> compiling app icon (actool)"
 ACTOOL_PLIST="$(mktemp /tmp/parrot-actool-XXXXXX.plist)"
 xcrun actool Parrot/Assets.xcassets \
@@ -80,11 +94,27 @@ scripts/assemble-help.sh "$APP"
 echo "==> codesigning (Developer ID, hardened runtime, secure timestamp)"
 # The SwiftPM resource bundles are flat (no Info.plist) and contain no code, so
 # they can't and needn't be signed standalone — the app signature seals them.
-# If a dep ever gains a real nested binary, notarization will flag it here.
+#
+# Sparkle IS real nested code, so it's signed inside-out first, in the order
+# Sparkle documents. Never --deep: it would stamp the app's entitlements onto
+# helpers that must not have them. Only the outer app gets --entitlements; the
+# helpers run outside our sandbox on purpose, which is how they can replace a
+# running app.
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+for nested in \
+  "$SPARKLE/XPCServices/Installer.xpc" \
+  "$SPARKLE/Autoupdate" \
+  "$SPARKLE/Updater.app" \
+  "$APP/Contents/Frameworks/Sparkle.framework"; do
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$nested"
+done
+
 codesign --force --options runtime --timestamp \
   --entitlements Parrot/Parrot.entitlements \
   --sign "$IDENTITY" "$APP"
-codesign --verify --strict --verbose=2 "$APP"
+# --deep on verify (not on sign) walks the nested code and fails loudly if any
+# helper was missed — the check that would have caught Sparkle arriving.
+codesign --verify --deep --strict --verbose=2 "$APP"
 
 if [ -z "${SKIP_NOTARIZE:-}" ]; then
   echo "==> notarizing the app (usually 1-5 min)"
@@ -115,6 +145,26 @@ else
   echo "==> SKIP_NOTARIZE set: skipped Apple submission, stapling, and Gatekeeper check"
 fi
 
+# The appcast is how existing installs find this build. Sparkle signs the DMG
+# with the EdDSA key in the login Keychain and refuses anything unsigned, so a
+# hijacked feed still can't ship code. Written into docs/, which GitHub Pages
+# serves at the SUFeedURL baked into the app.
+echo "==> generating the Sparkle appcast"
+GENERATE_APPCAST=".build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+if [ -x "$GENERATE_APPCAST" ]; then
+  "$GENERATE_APPCAST" \
+    --download-url-prefix "https://github.com/turantekin/Parrot/releases/download/v$VERSION/" \
+    --full-release-notes-url "https://github.com/turantekin/Parrot/releases" \
+    --maximum-versions 1 \
+    "$DIST"
+  cp "$DIST/appcast.xml" docs/appcast.xml
+  echo "    docs/appcast.xml updated — COMMIT AND PUSH IT or no one gets this update"
+else
+  echo "!! generate_appcast missing (run swift build first) — appcast NOT updated" >&2
+  exit 1
+fi
+
 echo
 echo "Done: $DMG"
 echo "Publish: gh release create v$VERSION \"$DMG\" --title \"Parrot $VERSION\" --generate-notes"
+echo "Then:   git add docs/appcast.xml && git commit && git push   # feeds existing installs"

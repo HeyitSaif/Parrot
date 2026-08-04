@@ -119,6 +119,11 @@ bundle: build
 	@# SwiftPM resource bundles + the UI fonts (Info.plist sets ATSApplicationFontsPath ".")
 	cp -R $(BINDIR)/*.bundle $(APP)/Contents/Resources/
 	cp Parrot/Fonts/*.otf $(APP)/Contents/Resources/
+	@# Sparkle is a binary XCFramework: swift build links against it but never
+	@# embeds it, so it has to be copied in by hand. The executable's rpath
+	@# points at ../Frameworks (see Package.swift linkerSettings).
+	@mkdir -p $(APP)/Contents/Frameworks
+	cp -R $(BINDIR)/Sparkle.framework $(APP)/Contents/Frameworks/
 	@# swift build can't compile asset catalogs, so the icon goes through actool.
 	xcrun actool Parrot/Assets.xcassets \
 		--compile $(APP)/Contents/Resources \
