@@ -228,6 +228,16 @@ switch to display names so reports say "Gürkan flagged onboarding" instead of
 
 ### Phase 3 — voice profiles (opt-in "remember this voice")
 
+> **Implementation note (2026-08-04, phase 3 built):** shipped
+> suggestion-only per the confirm-first amendment. Deviations: threshold
+> recalibrated to **0.7** from a split-half experiment on the real call
+> (same voice across halves 0.96, different voices 0.50–0.53 — mean
+> embeddings score far above the generic band; 0.55 left 0.016 of margin);
+> profiles keyed by exact name with a running mean (no 3–5-sample list);
+> `SpeakerManager.initializeKnownSpeakers` not used (suggestions sit above
+> the pipeline); Me-enrollment from mic embeddings deferred (imports-only
+> payoff); LLM attribution assist deferred.
+
 - `SpeakerProfile` @Model: name, centroid embedding ([Float] as Data),
   sampleCount, updatedAt. Created/updated only when the user names a speaker
   and the **"Remember voices" setting (default off)** is enabled — biometric

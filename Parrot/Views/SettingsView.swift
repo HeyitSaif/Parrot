@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import UniformTypeIdentifiers
 
 /// Settings pages, System Settings-style: topics on the left, ONE topic per
@@ -67,6 +68,9 @@ struct SettingsView: View {
     @AppStorage("polishAfterCall") private var polishAfterCall = false
     @State private var section: SettingsSection = .general
     @State private var diarizerDownloading = false
+    @AppStorage("rememberVoices") private var rememberVoices = false
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \SpeakerProfile.name) private var voiceProfiles: [SpeakerProfile]
     @State private var showFileImporter = false
     /// There's no Save button — @AppStorage persists on every change. This
     /// drives a small transient "Saved" chip so that's visible, debounced so
@@ -307,6 +311,30 @@ struct SettingsView: View {
                 Text("Tells apart the different people on a call, on this Mac. Downloads automatically after a call if missing. Uses pyannote models via FluidAudio (CC-BY-4.0).")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Colors.ink2)
+
+                Toggle("Remember voices", isOn: $rememberVoices)
+                Text("When on, naming a speaker saves their voiceprint on this Mac so future calls can suggest who's talking. Never leaves your Mac; delete anytime.")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Colors.ink2)
+                if rememberVoices {
+                    ForEach(voiceProfiles) { profile in
+                        HStack {
+                            Text(profile.name)
+                            Text("heard \(profile.sampleCount)×")
+                                .foregroundStyle(Theme.Colors.ink2)
+                            Spacer()
+                            Button("Forget") {
+                                SpeakerProfileStore.delete(profile, in: modelContext)
+                            }
+                        }
+                        .font(Theme.Typography.caption)
+                    }
+                    if !voiceProfiles.isEmpty {
+                        Button("Forget All Voices") {
+                            SpeakerProfileStore.deleteAll(in: modelContext)
+                        }
+                    }
+                }
             }
 
             Section("Language") {

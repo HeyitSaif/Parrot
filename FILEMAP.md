@@ -22,6 +22,7 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Models/KindStyle.swift` | 84 | Maps insight kinds to icon/color; `Color` helpers |
 | `Models/KnowledgeBase.swift` | 54 | KB document/chunk/reference value types |
 | `Models/AIUsage.swift` | 131 | Token accounting and per-model price table |
+| `Models/SpeakerProfile.swift` | 30 | Remembered voice: name + running-mean embedding (opt-in, local) |
 
 ## Services
 
@@ -43,6 +44,7 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Services/PermissionFlow.swift` | 75 | Screen Recording + microphone grant checks |
 | `Services/UpdateChecker.swift` | 103 | Daily GitHub release poll, feeds the update banner |
 | `Services/BugReport.swift` | 120 | Pre-filled GitHub issue: diagnostics, own-window screenshot, URL builder |
+| `Services/SpeakerProfileStore.swift` | 66 | Voiceprint matching (cosine ≥ 0.7), remember/forget for named voices |
 
 ## Views
 

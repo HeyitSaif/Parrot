@@ -38,6 +38,7 @@ enum ProfileTest {
         testCopilotBudget()
         testDiarizedLabel()
         testSpeakerNames()
+        testVoiceProfiles()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -104,7 +105,7 @@ enum ProfileTest {
 
     @MainActor
     static func testMigration() {
-        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self])
+        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self, SpeakerProfile.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         guard let container = try? ModelContainer(for: schema, configurations: [config]) else {
             check("migration container builds", false); return
@@ -135,7 +136,7 @@ enum ProfileTest {
 
     @MainActor
     static func testPresetRefresh() {
-        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self])
+        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self, SpeakerProfile.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         guard let container = try? ModelContainer(for: schema, configurations: [config]) else {
             check("refresh container builds", false); return
@@ -538,7 +539,7 @@ enum ProfileTest {
 
     @MainActor
     static func testSpeakerNames() {
-        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self])
+        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self, SpeakerProfile.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         guard let container = try? ModelContainer(for: schema, configurations: [config]) else {
             check("speaker-names container builds", false); return
@@ -561,6 +562,29 @@ enum ProfileTest {
         check("other labels ordered", m.otherSpeakerLabels == ["Speaker 1", "Speaker 2"])
         check("longest segments sorted", m.longestSegments(for: "Speaker 1").map(\.startTime) == [20.0, 0.0])
         check("participants summary", m.participantsSummary == "Gürkan")
+    }
+
+    @MainActor
+    static func testVoiceProfiles() {
+        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self, SpeakerProfile.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        guard let container = try? ModelContainer(for: schema, configurations: [config]) else {
+            check("voice-profiles container builds", false); return
+        }
+        let ctx = ModelContext(container)
+        let a: [Float] = [1, 0, 0], b: [Float] = [0, 1, 0]
+        check("cosine identical", abs(SpeakerProfileStore.cosine(a, a) - 1) < 0.001)
+        check("cosine orthogonal", abs(SpeakerProfileStore.cosine(a, b)) < 0.001)
+        check("no profiles no match", SpeakerProfileStore.match(a, in: ctx) == nil)
+        SpeakerProfileStore.remember(name: "Gürkan", embedding: [1, 0, 0], in: ctx)
+        check("match after remember", SpeakerProfileStore.match([0.9, 0.1, 0], in: ctx)?.name == "Gürkan")
+        check("below threshold no match", SpeakerProfileStore.match([0, 0, 1], in: ctx) == nil)
+        SpeakerProfileStore.remember(name: "Gürkan", embedding: [0, 1, 0], in: ctx)
+        let profile = SpeakerProfileStore.profiles(in: ctx).first
+        check("running mean", profile.map { abs($0.embedding[0] - 0.5) < 0.001 && abs($0.embedding[1] - 0.5) < 0.001 } ?? false)
+        check("sample count grows", profile?.sampleCount == 2)
+        SpeakerProfileStore.deleteAll(in: ctx)
+        check("deleteAll empties", SpeakerProfileStore.profiles(in: ctx).isEmpty)
     }
 
     static func testDiarizedLabel() {

@@ -21,6 +21,8 @@ enum ReportTab: String, CaseIterable, Identifiable {
 struct MeetingDetailView: View {
     let meeting: Meeting
     @Environment(RecordingManager.self) private var recordingManager
+    @Environment(\.modelContext) private var modelContext
+    @AppStorage("rememberVoices") private var rememberVoices = false
     /// Parent clears the selection and performs the actual delete — this view
     /// must be gone before the model object is.
     var onDelete: (() -> Void)? = nil
@@ -553,6 +555,13 @@ struct MeetingDetailView: View {
                         .font(Theme.Typography.caption)
                         .fontWeight(.medium)
                         .frame(width: 70, alignment: .leading)
+                    if rememberVoices,
+                       let embedding = meeting.speakerEmbeddings[label],
+                       let match = SpeakerProfileStore.match(embedding, in: modelContext) {
+                        Text("sounds like \(match.name)?")
+                            .font(Theme.Typography.caption)
+                            .foregroundStyle(Theme.Colors.accent)
+                    }
                     if let clip = meeting.longestSegments(for: label, count: 1).first {
                         Button {
                             playClip(start: clip.startTime, end: min(clip.endTime, clip.startTime + 8))
@@ -694,7 +703,29 @@ struct SpeakerNamePopover: View {
     let label: String
     let playClip: (_ start: TimeInterval, _ end: TimeInterval) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @AppStorage("rememberVoices") private var rememberVoices = false
     @State private var name = ""
+
+    /// "Sounds like X" from remembered voices — suggestion only, the click
+    /// below is the confirmation (confirm-first rule).
+    private var suggestion: (name: String, similarity: Float)? {
+        guard rememberVoices, meeting.speakerNames[label] == nil,
+              let embedding = meeting.speakerEmbeddings[label], !embedding.isEmpty
+        else { return nil }
+        return SpeakerProfileStore.match(embedding, in: modelContext)
+    }
+
+    private func assign(_ finalName: String) {
+        var names = meeting.speakerNames
+        names[label] = finalName.nilIfEmpty
+        meeting.speakerNames = names
+        if rememberVoices, let finalName = finalName.nilIfEmpty,
+           let embedding = meeting.speakerEmbeddings[label] {
+            SpeakerProfileStore.remember(name: finalName, embedding: embedding, in: modelContext)
+        }
+        dismiss()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -704,6 +735,18 @@ struct SpeakerNamePopover: View {
             Text("Listen to a couple of moments from this voice.")
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Colors.ink2)
+
+            if let suggestion {
+                Button {
+                    assign(suggestion.name)
+                } label: {
+                    Label("Sounds like \(suggestion.name) — confirm",
+                          systemImage: "person.crop.circle.badge.checkmark")
+                        .font(Theme.Typography.caption)
+                        .fontWeight(.medium)
+                }
+                .tint(Theme.Colors.accent)
+            }
 
             ForEach(meeting.longestSegments(for: label), id: \.id) { clip in
                 Button {
@@ -727,10 +770,7 @@ struct SpeakerNamePopover: View {
             TextField("Type a name — e.g. Gürkan", text: $name)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit {
-                    var names = meeting.speakerNames
-                    names[label] = name.trimmingCharacters(in: .whitespaces).nilIfEmpty
-                    meeting.speakerNames = names
-                    dismiss()
+                    assign(name.trimmingCharacters(in: .whitespaces))
                 }
 
             Text("Renames every line from this voice. A single wrong line can be moved from the line’s right-click menu.")
