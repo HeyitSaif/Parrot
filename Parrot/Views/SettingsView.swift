@@ -118,13 +118,12 @@ struct SettingsView: View {
                 // Pinned at the bottom: a hello from the author (jumps to the
                 // help book's "Hi from Uygar" page) and the standard macOS
                 // help button for the guide itself.
-                SettingsNavRow(title: "About", icon: "hand.wave", selected: false) {
-                    Self.openHelp(anchor: "hi-from-uygar")
+                HStack(spacing: 6) {
+                    SettingsNavRow(title: "About", icon: "hand.wave", selected: false) {
+                        Self.openHelp(anchor: "hi-from-uygar")
+                    }
+                    HelpCircleButton { NSApp.showHelp(nil) }
                 }
-                HelpLink { NSApp.showHelp(nil) }
-                    .controlSize(.small)
-                    .padding(.top, 4)
-                    .padding(.leading, 6)
             }
             .padding(8)
             .frame(width: 168)
@@ -592,6 +591,32 @@ enum Appearance: String, CaseIterable {
 }
 
 // MARK: - Settings nav row
+
+/// The guide button. macOS's stock HelpLink is a hairline grey circle nobody
+/// sees, so this is a filled accent disc with a white glyph that lifts on
+/// hover — the one control in the sidebar that should catch a lost eye.
+private struct HelpCircleButton: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "questionmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(Theme.Colors.accent.opacity(hovering ? 1 : 0.9), in: Circle())
+                .shadow(color: Theme.Colors.accent.opacity(hovering ? 0.45 : 0.25),
+                        radius: hovering ? 5 : 3, y: 1)
+                .scaleEffect(hovering ? 1.06 : 1)
+        }
+        .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .onHover { hovering = $0 }
+        .help("Parrot Help")
+        .accessibilityLabel("Parrot Help")
+    }
+}
 
 private struct SettingsNavRow: View {
     let title: String
