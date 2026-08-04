@@ -124,6 +124,8 @@ bundle: build
 	@# points at ../Frameworks (see Package.swift linkerSettings).
 	@mkdir -p $(APP)/Contents/Frameworks
 	cp -R $(BINDIR)/Sparkle.framework $(APP)/Contents/Frameworks/
+	@# Unused network-capable helper (we have network.client) — same as release.sh.
+	@rm -rf "$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
 	@# swift build can't compile asset catalogs, so the icon goes through actool.
 	xcrun actool Parrot/Assets.xcassets \
 		--compile $(APP)/Contents/Resources \
@@ -136,9 +138,22 @@ bundle: build
 	@# In-app help: the same docs/help pages GitHub serves, bundled + indexed
 	@# for the native Help menu (must land before codesign seals the bundle).
 	@scripts/assemble-help.sh $(APP)
+	@# Sparkle is real nested code signed inside-out (release.sh order); the
+	@# hardened-runtime app refuses to load it under a foreign signature, so a
+	@# make-built bundle without this crashes at launch with "Library missing".
+	@# Never --deep: it would stamp the app's entitlements onto the helpers.
+	codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" \
+		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
+	codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" \
+		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+	codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" \
+		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
+	codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" \
+		"$(APP)/Contents/Frameworks/Sparkle.framework"
 	codesign --force --options runtime --timestamp=none \
 		--entitlements Parrot/Parrot.entitlements \
 		--sign "$(SIGN_IDENTITY)" $(APP)
+	codesign --verify --deep --strict $(APP)
 	@$(MAKE) --no-print-directory signing-status
 
 # Say which identity was used and, when that's ad-hoc, why it matters. Printed
