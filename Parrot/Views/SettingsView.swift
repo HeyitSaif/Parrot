@@ -72,9 +72,9 @@ struct SettingsView: View {
     /// typing in a field shows one toast when the user pauses, not per key.
     @State private var showSavedToast = false
     @State private var savedToastTask: Task<Void, Never>?
-    /// Feedback line for the manual update check — without it, clicking
-    /// "Check Now" while already current looked like the button was dead.
-    @State private var updateCheckResult: String?
+    /// Mirrors Sparkle's own setting so the toggle survives a relaunch without
+    /// us storing a second copy of the truth.
+    @State private var automaticUpdates = AppUpdater.shared.automaticallyUpdates
 
     /// Opens the bundled Help Book at a specific page anchor (hiutil indexes
     /// anchors — the -a in assemble-help.sh). Dev binaries carry no book, so
@@ -195,24 +195,17 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                LabeledContent("Version", value: "Parrot \(UpdateChecker.currentVersion)")
+                LabeledContent("Version", value: "Parrot \(AppUpdater.currentVersion)")
+                Toggle("Keep Parrot up to date", isOn: $automaticUpdates)
+                    .onChange(of: automaticUpdates) {
+                        AppUpdater.shared.automaticallyUpdates = automaticUpdates
+                    }
+                Hint("Downloads new versions in the background and installs them when you quit. Never during a recording.")
                 HStack(spacing: 6) {
-                    Hint("Checks GitHub once a day and offers new versions with a banner.")
-                    Button("Check Now") {
-                        Task {
-                            let release = await UpdateChecker.shared.check()
-                            // ponytail: nil also covers a failed fetch; fine for a hint line
-                            updateCheckResult = release.map { "Parrot \($0.version) is available — see the banner" }
-                                ?? "No newer version found"
-                        }
-                    }
-                    .buttonStyle(.link)
-                    .font(Theme.Typography.secondary)
-                    if let updateCheckResult {
-                        Text(updateCheckResult)
-                            .font(Theme.Typography.secondary)
-                            .foregroundStyle(Theme.Colors.ink2)
-                    }
+                    Hint("Or look right now.")
+                    Button("Check Now") { AppUpdater.shared.checkForUpdates() }
+                        .buttonStyle(.link)
+                        .font(Theme.Typography.secondary)
                 }
                 HStack(spacing: 6) {
                     Hint("Every screen explained, with setup and troubleshooting.")

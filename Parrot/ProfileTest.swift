@@ -378,15 +378,7 @@ enum ProfileTest {
         let splitDecoded = (try? JSONEncoder().encode(split)).flatMap { try? JSONDecoder().decode(AIUsage.self, from: $0) }
         check("split round-trips", splitDecoded?.reports == split.reports && splitDecoded?.reportsProvider == "ollama")
 
-        // Update check version compare.
-        check("newer patch wins", UpdateChecker.isNewer("0.11.1", than: "0.11.0"))
-        check("newer minor beats higher patch", UpdateChecker.isNewer("0.12.0", than: "0.11.9"))
-        check("equal is not newer", !UpdateChecker.isNewer("0.11.0", than: "0.11.0"))
-        check("older is not newer", !UpdateChecker.isNewer("0.10.9", than: "0.11.0"))
-        check("dev builds never update", !UpdateChecker.isNewer("9.9.9", than: "dev"))
-        check("make's 0.0.0-dev never updates", !UpdateChecker.isNewer("9.9.9", than: "0.0.0-dev"))
-        check("empty version never updates", !UpdateChecker.isNewer("9.9.9", than: ""))
-        check("unparseable candidate is not newer", !UpdateChecker.isNewer("v1.2.3", than: "0.11.0"))
+
     }
 
     // The issue-#12 mic watchdog: sustained exact-zero input means the OS cut

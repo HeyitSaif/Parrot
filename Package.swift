@@ -12,6 +12,10 @@ let package = Package(
         // Vendored SpeexDSP for acoustic echo cancellation. Kept in sync with
         // project.yml (the xcodegen source of truth) so `swift build` works too.
         .package(path: "Vendor/CSpeexDSP"),
+        // Self-updating. Sparkle is a binary XCFramework, so the Makefile has
+        // to copy it into Contents/Frameworks itself — `swift build` links it
+        // but never embeds it (see the bundle step).
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.5"),
     ],
     targets: [
         .executableTarget(
@@ -19,8 +23,13 @@ let package = Package(
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit"),
                 .product(name: "CSpeexDSP", package: "CSpeexDSP"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
-            path: "Parrot"
+            path: "Parrot",
+            linkerSettings: [
+                // The framework lives next to the executable in the bundle.
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+            ]
         ),
     ]
 )

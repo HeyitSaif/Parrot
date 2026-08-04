@@ -14,5 +14,13 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- Sparkle talks to its installer XPC service, which lives outside the
+	     sandbox so it can replace the app bundle. Required for self-updating;
+	     the downloader service is not, since we hold network.client above. -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>com.uygar.parrot-spks</string>
+		<string>com.uygar.parrot-spki</string>
+	</array>
 </dict>
 </plist>

@@ -13,6 +13,11 @@ packages:
   # Vendored SpeexDSP for acoustic echo cancellation (mic + system-audio reference).
   CSpeexDSP:
     path: Vendor/CSpeexDSP
+  # Self-updating. Ships nested code (framework, Installer.xpc, Autoupdate,
+  # Updater.app) that scripts/release.sh signs inside-out before notarizing.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.9.5"
 
 targets:
   Parrot:
@@ -48,6 +53,8 @@ targets:
         product: WhisperKit
       - package: CSpeexDSP
         product: CSpeexDSP
+      - package: Sparkle
+        product: Sparkle
     entitlements:
       path: Parrot/Parrot.entitlements
       properties:
@@ -64,6 +71,12 @@ targets:
         # User-picked files (knowledge base imports, audio import) + Downloads.
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.files.downloads.read-write: true
+        # Sparkle's installer XPC service lives outside the sandbox so it can
+        # replace the app bundle. Without these two names self-updating fails
+        # silently. The downloader service isn't needed — we have network.client.
+        com.apple.security.temporary-exception.mach-lookup.global-name:
+          - com.uygar.parrot-spks
+          - com.uygar.parrot-spki
     info:
       path: Parrot/Info.plist
       properties:
@@ -80,3 +93,14 @@ targets:
         # Auto-register bundled fonts (Parrot/Fonts/*.otf, flattened into
         # Resources by xcodegen) — the whole UI runs on Inter.
         ATSApplicationFontsPath: "."
+        # Sparkle. The feed is served by GitHub Pages from docs/ on master, the
+        # same place the help guide lives. SUPublicEDKey is the public half of
+        # the EdDSA key in the release machine's login Keychain — updates not
+        # signed by it are refused, so a hijacked feed still can't ship code.
+        # Installer launcher service is required for sandboxed apps.
+        SUFeedURL: "https://turantekin.github.io/Parrot/appcast.xml"
+        SUPublicEDKey: "5+CifCVb0y0I1NthwWggSCNDRclBd19qGUx5tC2uGU4="
+        SUEnableInstallerLauncherService: true
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: true
+        SUScheduledCheckInterval: 86400

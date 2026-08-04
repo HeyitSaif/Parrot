@@ -59,7 +59,7 @@ enum BugReport {
         let cpu = "Intel"
         #endif
         return [
-            "Parrot \(UpdateChecker.currentVersion) · macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) · \(cpu)",
+            "Parrot \(AppUpdater.currentVersion) · macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) · \(cpu)",
             "Model: \(defaults.string(forKey: "whisperModel") ?? "base") · Transcription: \(backend) · Copilot: \(copilot)",
         ]
     }
