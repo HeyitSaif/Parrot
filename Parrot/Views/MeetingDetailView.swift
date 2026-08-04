@@ -20,6 +20,7 @@ enum ReportTab: String, CaseIterable, Identifiable {
 
 struct MeetingDetailView: View {
     let meeting: Meeting
+    @Environment(RecordingManager.self) private var recordingManager
     /// Parent clears the selection and performs the actual delete — this view
     /// must be gone before the model object is.
     var onDelete: (() -> Void)? = nil
@@ -379,6 +380,25 @@ struct MeetingDetailView: View {
             if meeting.status == .processing {
                 processingView
                 Divider()
+            }
+            // Re-run on-device speaker detection — fixes old meetings recorded
+            // before real diarization, and bad splits after threshold tuning.
+            if meeting.status == .done, meeting.systemAudioPath.nilIfEmpty != nil {
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await recordingManager.redetectSpeakers(meeting: meeting) }
+                    } label: {
+                        Label(recordingManager.diarizationEngine.isProcessing
+                              ? "Detecting speakers…" : "Detect speakers",
+                              systemImage: "person.2.wave.2")
+                    }
+                    .disabled(recordingManager.diarizationEngine.isProcessing)
+                    .help("Figure out who said what, on this Mac. Downloads a 13 MB model on first use.")
+                }
+                .font(Theme.Typography.caption)
+                .padding(.horizontal, Theme.Metrics.pad)
+                .padding(.top, 8)
             }
             transcriptList
         }

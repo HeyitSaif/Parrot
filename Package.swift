@@ -9,6 +9,12 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
+        // On-device speaker diarization (CoreML pyannote pipeline). Pinned to
+        // the exact validated revision: clustering on borderline calls is
+        // numerically chaotic across library changes, so bumps must re-run
+        // --diarize-test on a real multi-party recording (see DiarizationEngine).
+        .package(url: "https://github.com/FluidInference/FluidAudio.git",
+                 revision: "5390df9752c8fc583596018360c5fd70d6fa6c75"),
         // Vendored SpeexDSP for acoustic echo cancellation. Kept in sync with
         // project.yml (the xcodegen source of truth) so `swift build` works too.
         .package(path: "Vendor/CSpeexDSP"),
@@ -22,6 +28,7 @@ let package = Package(
             name: "Parrot",
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit"),
+                .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "CSpeexDSP", package: "CSpeexDSP"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],

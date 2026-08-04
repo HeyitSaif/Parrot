@@ -32,7 +32,7 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Services/EchoCanceller.swift` | 138 | Swift wrapper over vendored SpeexDSP AEC |
 | `Services/TranscriptionEngine.swift` | 550 | On-device WhisperKit; `AudioSource` routing |
 | `Services/CloudTranscription.swift` | 355 | Opt-in Groq (batch) and Deepgram (streaming) backends + WAV encode |
-| `Services/DiarizationEngine.swift` | 182 | Speaker attribution over transcript segments |
+| `Services/DiarizationEngine.swift` | 105 | FluidAudio offline pyannote diarization (CoreML): labels + per-speaker embeddings |
 | `Services/AnalysisProvider.swift` | 605 | `AnalysisProvider` protocol, request/result types, prompt building, **Keychain helpers** (~L575) |
 | `Services/OpenAICompatibleProvider.swift` | 528 | OpenAI-shaped LLM client (incl. Ollama); provider switching |
 | `Services/CallAnalysisEngine.swift` | 350 | Drives live Copilot + post-call report analysis passes |

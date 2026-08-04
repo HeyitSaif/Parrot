@@ -33,6 +33,10 @@ struct ParrotMain {
             TranscribeTest.run(audioPath: args[i + 1], modelFolder: modelFolder)
             return
         }
+        if let i = args.firstIndex(of: "--diarize-test"), i + 1 < args.count {
+            DiarizeTest.run(audioPath: args[i + 1])
+            return
+        }
         if args.contains("--profile-test") {
             MainActor.assumeIsolated { ProfileTest.run() }
             return

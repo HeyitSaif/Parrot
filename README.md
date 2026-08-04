@@ -47,6 +47,7 @@ If you find this useful or just think the idea is cool, give it a star. It'll ma
 | UI | SwiftUI, native macOS (no Electron!) |
 | Speech-to-Text (default) | [WhisperKit](https://github.com/argmaxinc/WhisperKit) — on-device, runs on Neural Engine |
 | Speech-to-Text (optional, BYO key) | Groq `whisper-large-v3-turbo` (HTTP chunks) · Deepgram Nova-3 (websocket streaming) |
+| Speaker detection | [FluidAudio](https://github.com/FluidInference/FluidAudio) (Apache-2.0) — on-device pyannote-derived models (CC-BY-4.0), ~13 MB downloaded on first use |
 | Copilot & reports (optional, BYO key) | Claude API (Haiku) with structured outputs |
 | Knowledge base | Apple NaturalLanguage embeddings — documents chunked & embedded on-device, never uploaded |
 | System Audio | ScreenCaptureKit (no virtual audio drivers needed) |
