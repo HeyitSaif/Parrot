@@ -166,5 +166,6 @@ fi
 
 echo
 echo "Done: $DMG"
-echo "Publish: gh release create v$VERSION \"$DMG\" --title \"Parrot $VERSION\" --generate-notes"
-echo "Then:   git add docs/appcast.xml && git commit && git push   # feeds existing installs"
+echo "Publish: scripts/publish.sh $VERSION [notes.md]"
+echo "  (creates the GitHub release AND pushes docs/appcast.xml, then checks the"
+echo "   live feed — publishing only the release reaches nobody who already has Parrot)"
