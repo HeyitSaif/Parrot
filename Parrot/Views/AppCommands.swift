@@ -70,6 +70,14 @@ enum MeetingActions {
             )
         ])
     }
+
+    /// Re-runs first-run onboarding. ParrotApp's sheet is derived from the
+    /// hasCompletedOnboarding key, so clearing it presents the tour right
+    /// away — no relaunch. Step goes first so the flag flip lands on Welcome.
+    static func showWelcomeTour() {
+        UserDefaults.standard.set(0, forKey: "onboardingStep")
+        UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
+    }
 }
 
 // MARK: - Main menu commands
@@ -155,6 +163,9 @@ struct ParrotCommands: Commands {
             }
             Button("Parrot Help on the Web") {
                 MeetingActions.open("https://turantekin.github.io/Parrot/help/")
+            }
+            Button("Show Welcome Tour") {
+                MeetingActions.showWelcomeTour()
             }
             Divider()
             Button("Parrot on GitHub") {

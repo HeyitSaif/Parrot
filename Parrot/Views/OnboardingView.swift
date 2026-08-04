@@ -52,8 +52,9 @@ struct OnboardingView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
+                    // Dismissal marks completion: the app-side binding writes
+                    // hasCompletedOnboarding when this flips to false.
                     Button("Let's start") {
-                        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
                         isPresented = false
                     }
                     .buttonStyle(.borderedProminent)

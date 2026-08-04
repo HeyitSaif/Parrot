@@ -75,7 +75,13 @@ struct ParrotApp: App {
     @NSApplicationDelegateAdaptor(ParrotAppDelegate.self) private var appDelegate
     @State private var recordingManager = RecordingManager()
     @State private var appSession = AppSession()
-    @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+    // Live, not a launch-time snapshot: Settings and Help → Show Welcome Tour
+    // re-open the tour by clearing this key, and the sheet presents without a
+    // relaunch. Completing the tour sets it back through the same binding.
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    private var showOnboarding: Binding<Bool> {
+        Binding(get: { !hasCompletedOnboarding }, set: { hasCompletedOnboarding = !$0 })
+    }
     /// Same key/enum as SettingsView's Appearance picker.
     @AppStorage("appearance") private var appearance = Appearance.system
 
@@ -98,8 +104,8 @@ struct ParrotApp: App {
                 .environment(recordingManager)
                 .environment(recordingManager.profileStore)
                 .environment(appSession)
-                .sheet(isPresented: $showOnboarding) {
-                    OnboardingView(isPresented: $showOnboarding)
+                .sheet(isPresented: showOnboarding) {
+                    OnboardingView(isPresented: showOnboarding)
                         .environment(recordingManager)
                         .interactiveDismissDisabled()
                 }
