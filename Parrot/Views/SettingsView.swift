@@ -237,7 +237,8 @@ struct SettingsView: View {
                     Text("Tiny — 40 MB, fastest").tag("tiny")
                     Text("Base — 140 MB, good balance").tag("base")
                     Text("Small — 460 MB, better accuracy").tag("small")
-                    Text("Large V3 Turbo — 1.5 GB, best accuracy").tag("large-v3-turbo")
+                    Text("Large V3 Turbo Compressed — 626 MB, fast, low memory").tag("large-v3-v20240930_626MB")
+                    Text("Large V3 Turbo — 1.6 GB, best accuracy").tag("large-v3-turbo")
                 }
                 .pickerStyle(.radioGroup)
 

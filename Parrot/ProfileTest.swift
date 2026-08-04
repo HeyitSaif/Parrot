@@ -407,13 +407,21 @@ enum ProfileTest {
         check("watchdog nonzero resets the zero run", w2.observe(meanAbs: 0, at: t0.addingTimeInterval(2.5)) == .ok)
     }
 
-    // Local model folder matching (the hub-resolution bypass in loadModel).
+    // Local model folder matching (the hub-resolution bypass in loadModel),
+    // plus the tag → hub-spelling map that makes first-time downloads resolve
+    // (issue #30: no repo folder ends in "large-v3-turbo").
     static func testModelFolderMatch() {
         let disk = ["openai_whisper-base", "openai_whisper-small",
-                    "openai_whisper-large-v3_turbo", "distil-whisper_distil-large-v3"]
+                    "openai_whisper-large-v3-v20240930",
+                    "openai_whisper-large-v3-v20240930_626MB",
+                    "distil-whisper_distil-large-v3"]
+        check("hub variant maps the turbo tag", TranscriptionEngine.hubVariant(for: "large-v3-turbo") == "large-v3-v20240930")
+        check("hub variant passes other tags through", TranscriptionEngine.hubVariant(for: "base") == "base")
         check("folder match base", TranscriptionEngine.matchModelFolder("base", in: disk) == "openai_whisper-base")
-        check("folder match turbo across separators",
-              TranscriptionEngine.matchModelFolder("large-v3-turbo", in: disk) == "openai_whisper-large-v3_turbo")
+        check("folder match turbo via hub variant",
+              TranscriptionEngine.matchModelFolder(TranscriptionEngine.hubVariant(for: "large-v3-turbo"), in: disk) == "openai_whisper-large-v3-v20240930")
+        check("folder match 626MB across separators",
+              TranscriptionEngine.matchModelFolder("large-v3-v20240930-626mb", in: disk) == "openai_whisper-large-v3-v20240930_626MB")
         check("folder match misses absent model", TranscriptionEngine.matchModelFolder("tiny", in: disk) == nil)
         check("folder match rejects ambiguity",
               TranscriptionEngine.matchModelFolder("base", in: ["openai_whisper-base", "openai-whisper_base"]) == nil)

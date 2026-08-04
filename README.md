@@ -124,7 +124,8 @@ Parrot uses WhisperKit models for transcription. Pick one during onboarding:
 | tiny | ~40 MB | Fastest | Basic |
 | base | ~140 MB | Fast | Good |
 | small | ~460 MB | Moderate | Better |
-| large-v3-turbo | ~1.5 GB | Slower | Best |
+| large-v3-turbo compressed | ~626 MB | Moderate | Near-best |
+| large-v3-turbo | ~1.6 GB | Slower | Best |
 
 The model downloads automatically on first use. `base` is a good default.
 

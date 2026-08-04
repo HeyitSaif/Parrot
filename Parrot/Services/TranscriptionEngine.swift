@@ -110,10 +110,11 @@ final class TranscriptionEngine {
     @MainActor
     func loadModel(_ modelName: String = "base") async {
         modelState = .loading
+        let variant = Self.hubVariant(for: modelName)
         do {
             let config = WhisperKitConfig(
-                model: modelName,
-                modelFolder: Self.localModelFolder(for: modelName)?.path,
+                model: variant,
+                modelFolder: Self.localModelFolder(for: variant)?.path,
                 verbose: false,
                 logLevel: .none,
                 prewarm: true,
@@ -128,9 +129,19 @@ final class TranscriptionEngine {
         }
     }
 
+    /// UI model tags → the hub's spelling. WhisperKit downloads by globbing
+    /// "*<variant>/*" against the repo, and no folder there ends in
+    /// "large-v3-turbo" — OpenAI's turbo checkpoint is published as
+    /// "openai_whisper-large-v3-v20240930", so a fresh download of our
+    /// "large-v3-turbo" tag failed with modelsUnavailable (issue #30).
+    /// Stored tags stay as-is; only this boundary maps.
+    nonisolated static func hubVariant(for modelName: String) -> String {
+        modelName == "large-v3-turbo" ? "large-v3-v20240930" : modelName
+    }
+
     /// The on-disk folder for a model, if already downloaded. WhisperKit's repo
-    /// spells variants inconsistently ("large-v3-turbo" lives in
-    /// "openai_whisper-large-v3_turbo"), hence the normalized matcher below.
+    /// spells variants inconsistently ('_' vs '-' between segments), hence the
+    /// normalized matcher below.
     nonisolated static func localModelFolder(for modelName: String) -> URL? {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml", isDirectory: true)
