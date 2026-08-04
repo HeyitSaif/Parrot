@@ -72,6 +72,17 @@ struct SettingsView: View {
     /// typing in a field shows one toast when the user pauses, not per key.
     @State private var showSavedToast = false
     @State private var savedToastTask: Task<Void, Never>?
+    /// Feedback line for the manual update check — without it, clicking
+    /// "Check Now" while already current looked like the button was dead.
+    @State private var updateCheckResult: String?
+
+    /// Opens the bundled Help Book at a specific page anchor (hiutil indexes
+    /// anchors — the -a in assemble-help.sh). Dev binaries carry no book, so
+    /// Help Viewer just no-ops there.
+    static func openHelp(anchor: String) {
+        let book = Bundle.main.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String
+        NSHelpManager.shared.openHelpAnchor(anchor, inBook: book)
+    }
 
     /// One Equatable snapshot of every auto-saved setting on this screen —
     /// a single onChange instead of one per field.
@@ -99,11 +110,21 @@ struct SettingsView: View {
             // MARK: Section nav
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(SettingsSection.allCases) { item in
-                    SettingsNavRow(section: item, selected: section == item) {
+                    SettingsNavRow(title: item.title, icon: item.icon, selected: section == item) {
                         section = item
                     }
                 }
                 Spacer()
+                // Pinned at the bottom: a hello from the author (jumps to the
+                // help book's "Hi from Uygar" page) and the standard macOS
+                // help button for the guide itself.
+                SettingsNavRow(title: "About", icon: "hand.wave", selected: false) {
+                    Self.openHelp(anchor: "hi-from-uygar")
+                }
+                HelpLink { NSApp.showHelp(nil) }
+                    .controlSize(.small)
+                    .padding(.top, 4)
+                    .padding(.leading, 6)
             }
             .padding(8)
             .frame(width: 168)
@@ -179,7 +200,25 @@ struct SettingsView: View {
                 HStack(spacing: 6) {
                     Hint("Checks GitHub once a day and offers new versions with a banner.")
                     Button("Check Now") {
-                        Task { await UpdateChecker.shared.check() }
+                        Task {
+                            let release = await UpdateChecker.shared.check()
+                            // ponytail: nil also covers a failed fetch; fine for a hint line
+                            updateCheckResult = release.map { "Parrot \($0.version) is available — see the banner" }
+                                ?? "No newer version found"
+                        }
+                    }
+                    .buttonStyle(.link)
+                    .font(Theme.Typography.secondary)
+                    if let updateCheckResult {
+                        Text(updateCheckResult)
+                            .font(Theme.Typography.secondary)
+                            .foregroundStyle(Theme.Colors.ink2)
+                    }
+                }
+                HStack(spacing: 6) {
+                    Hint("Every screen explained, with setup and troubleshooting.")
+                    Button("Open User Guide") {
+                        NSApp.showHelp(nil)
                     }
                     .buttonStyle(.link)
                     .font(Theme.Typography.secondary)
@@ -555,18 +594,19 @@ enum Appearance: String, CaseIterable {
 // MARK: - Settings nav row
 
 private struct SettingsNavRow: View {
-    let section: SettingsSection
+    let title: String
+    let icon: String
     let selected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: section.icon)
+                Image(systemName: icon)
                     .font(.system(size: 13))
                     .frame(width: 18)
                     .foregroundStyle(selected ? Theme.Colors.accent : Theme.Colors.ink2)
-                Text(section.title)
+                Text(title)
                     .font(Theme.Typography.sans(13, .medium))
                     .foregroundStyle(Theme.Colors.ink)
                 Spacer()

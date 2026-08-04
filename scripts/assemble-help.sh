@@ -41,6 +41,8 @@ cat > "$BOOK/Contents/Info.plist" <<'PLIST'
 	<string>index.html</string>
 	<key>HPDBookIndexPath</key>
 	<string>Parrot.helpindex</string>
+	<key>HPDBookCSIndexPath</key>
+	<string>Parrot.cshelpindex</string>
 	<key>HPDBookTitle</key>
 	<string>Parrot Help</string>
 	<key>HPDBookType</key>
@@ -49,7 +51,12 @@ cat > "$BOOK/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# Build the search index Help Viewer queries.
+# Build the search indexes Help Viewer queries. Two formats: the default
+# typedstream .helpindex for older viewers, and the Core Spotlight index
+# modern macOS actually uses — the legacy one can't even be dumped by
+# today's hiutil, and anchor jumps (Settings → About) need anchors (-a)
+# present in the CS index.
 hiutil -Caf "$LPROJ/Parrot.helpindex" "$LPROJ"
+hiutil -C -a -I corespotlight -f "$LPROJ/Parrot.cshelpindex" "$LPROJ"
 
 echo "==> help book assembled ($(ls "$LPROJ"/*.html | wc -l | tr -d ' ') pages, indexed)"

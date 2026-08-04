@@ -598,6 +598,11 @@ enum APIKeyStore {
     }
 
     static func load(account: String = "claude-api-key") -> String? {
+        // The logic harness must stay hermetic: reading the app's keychain
+        // item from an ad-hoc dev binary makes securityd pop a consent dialog
+        // and block forever when nobody clicks it (bit us: --profile-test
+        // hung inside testCopilotBudget via setPaused → isConfigured).
+        if ProcessInfo.processInfo.arguments.contains("--profile-test") { return nil }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
