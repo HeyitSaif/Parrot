@@ -186,6 +186,17 @@ Data model:
 - `speakerCount` becomes distinct display names (unchanged logic, now
   meaningful).
 
+**Confirm-first principle (core UX rule):** auto-detection only ever claims
+"these lines are the same voice", never who that voice is. The UI presents
+labels as a proposal to verify, not a fact: after the post-call pass, the
+transcript header shows a one-time card — "Heard N people besides you —
+listen and name them" — that steps through each detected voice with 2–3
+playable clips (the Descript pattern). Naming after listening IS the
+confirmation; a wrong grouping becomes obvious the moment the clip plays,
+and the fix is right there (rename, merge by same name, or per-line
+reassign). Dismissing the card leaves neutral "Speaker N" labels — never an
+invented identity.
+
 UI (transcript tab):
 - Speaker chip on each bubble gets a stable per-speaker color (Theme-driven,
   index-based palette).
@@ -216,8 +227,11 @@ switch to display names so reports say "Gürkan flagged onboarding" instead of
   max/mean cosine, starting threshold ~0.5–0.6 on the WeSpeaker embeddings
   (research consensus; no universal number — calibrate on our recordings and
   expect compressed call audio to score lower than mic audio). Hysteresis:
-  suggest at lower confidence, auto-apply at higher. Auto-applied names
-  render normally but stay re-editable; corrections update the profile.
+  suggest at lower confidence, auto-apply at higher — and auto-application
+  starts conservative: the first release only SUGGESTS ("Sounds like Gürkan —
+  confirm?" with a playable clip) and requires the click; silent auto-apply
+  is earned later, once real-world match accuracy is proven. Auto-applied
+  names render normally but stay re-editable; corrections update the profile.
   FluidAudio's `SpeakerManager.initializeKnownSpeakers` supports seeding
   known voices directly into the pipeline — prefer that over hand-rolled
   matching if it fits.
