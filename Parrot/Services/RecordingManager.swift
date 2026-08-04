@@ -478,7 +478,7 @@ final class RecordingManager {
         guard !segments.isEmpty else { return }
 
         let transcript = segments
-            .map { "[\($0.formattedTimestamp)] \($0.speakerLabel ?? "Speaker"): \($0.text)" }
+            .map { "[\($0.formattedTimestamp)] \(meeting.displayName(forSpeaker: $0.speakerLabel)): \($0.text)" }
             .joined(separator: "\n")
         let insightTitles = meeting.sortedInsights.map { "\($0.style.label): \($0.title)" }
         let instructions = meeting.profile?.tone ?? (UserDefaults.standard.string(forKey: "copilotInstructions") ?? "")

@@ -321,7 +321,8 @@ struct DashboardMeetingRow: View {
     }
 
     private var who: String {
-        meeting.themName?.nilIfEmpty
+        meeting.participantsSummary
+            ?? meeting.themName?.nilIfEmpty
             ?? (meeting.speakerCount > 1 ? "\(meeting.speakerCount) people" : "Them")
     }
 }
