@@ -216,6 +216,12 @@ struct SettingsView: View {
                     .buttonStyle(.link)
                     .font(Theme.Typography.secondary)
                 }
+                HStack(spacing: 6) {
+                    Hint("The first-run tour: permissions and model choice.")
+                    Button("Show Welcome Tour") { MeetingActions.showWelcomeTour() }
+                        .buttonStyle(.link)
+                        .font(Theme.Typography.secondary)
+                }
             }
         }
     }

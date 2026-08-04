@@ -104,8 +104,8 @@ enum HelpShots {
             "copilotEnabled": true,
             "copilotProvider": "claude",
             "whisperModel": "large-v3-turbo",
-            // Onboarding renders whichever step this points at; 2 is the
-            // model picker, the only one worth a picture in the guide.
+            // Onboarding renders whichever step this points at; the onboarding
+            // shots below re-register it per step (1 permissions, 2 models).
             "onboardingStep": 2,
         ])
 
@@ -192,8 +192,16 @@ enum HelpShots {
                 .environment(rm).environment(rm.profileStore).environment(AppSession())
                 .modelContainer(container))
 
-        // The real sheet geometry (500x540): if the model list ever outgrows
-        // it, this shot shows the clipping before a user does.
+        // Onboarding, real sheet geometry (500x600): if a step ever outgrows
+        // it, these shots show the clipping before a user does. Repeated
+        // register(defaults:) calls replace the key, picking the step.
+        UserDefaults.standard.register(defaults: ["onboardingStep": 1])
+        shot("onboarding-permissions.png", size: .init(width: 500, height: 600),
+             OnboardingView(isPresented: .constant(true))
+                .environment(rm).environment(rm.profileStore)
+                .modelContainer(container))
+
+        UserDefaults.standard.register(defaults: ["onboardingStep": 2])
         shot("onboarding-model.png", size: .init(width: 500, height: 600),
              OnboardingView(isPresented: .constant(true))
                 .environment(rm).environment(rm.profileStore)
@@ -205,7 +213,7 @@ enum HelpShots {
              BugReportSheet(screenshot: NSImage(contentsOf: dir.appendingPathComponent("dashboard.png"))))
 
         print("help-shots: wrote \(made.count) → \(dir.path)")
-        exit(made.count >= 11 ? 0 : 1)
+        exit(made.count >= 12 ? 0 : 1)
     }
 
     /// Real-window offscreen render: lay out, pump the runloop so SwiftUI

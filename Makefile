@@ -124,8 +124,9 @@ bundle: build
 	@# points at ../Frameworks (see Package.swift linkerSettings).
 	@mkdir -p $(APP)/Contents/Frameworks
 	cp -R $(BINDIR)/Sparkle.framework $(APP)/Contents/Frameworks/
-	@# Unused network-capable helper (we have network.client) — same as release.sh.
-	@rm -rf "$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+	@# Only needed without the network.client entitlement — release.sh drops it
+	@# too, and keeping the dev bundle identical keeps verify --deep honest.
+	@rm -rf $(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc
 	@# swift build can't compile asset catalogs, so the icon goes through actool.
 	xcrun actool Parrot/Assets.xcassets \
 		--compile $(APP)/Contents/Resources \
@@ -138,22 +139,24 @@ bundle: build
 	@# In-app help: the same docs/help pages GitHub serves, bundled + indexed
 	@# for the native Help menu (must land before codesign seals the bundle).
 	@scripts/assemble-help.sh $(APP)
-	@# Sparkle is real nested code signed inside-out (release.sh order); the
-	@# hardened-runtime app refuses to load it under a foreign signature, so a
-	@# make-built bundle without this crashes at launch with "Library missing".
-	@# Never --deep: it would stamp the app's entitlements onto the helpers.
-	codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" \
-		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
-	codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" \
-		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
-	codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" \
-		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
-	codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" \
-		"$(APP)/Contents/Frameworks/Sparkle.framework"
+	@# Sparkle arrives signed by the Sparkle project. Hardened runtime enforces
+	@# library validation: a team-signed Parrot refuses to load a framework from
+	@# another team, and the app dies at launch (dyld "different Team IDs").
+	@# Re-sign it inside-out with our identity first — mirrors release.sh, and
+	@# never --deep, which would stamp the app's entitlements onto helpers that
+	@# must not have them.
+	@for nested in \
+		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" \
+		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" \
+		"$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app" \
+		"$(APP)/Contents/Frameworks/Sparkle.framework"; do \
+		codesign --force --options runtime --timestamp=none --sign "$(SIGN_IDENTITY)" "$$nested" || exit 1; done
 	codesign --force --options runtime --timestamp=none \
 		--entitlements Parrot/Parrot.entitlements \
 		--sign "$(SIGN_IDENTITY)" $(APP)
-	codesign --verify --deep --strict $(APP)
+	@# --deep on verify (not sign) walks nested code and fails loudly if any
+	@# helper was missed — the check that caught this bug in release.sh.
+	@codesign --verify --deep --strict $(APP)
 	@$(MAKE) --no-print-directory signing-status
 
 # Say which identity was used and, when that's ad-hoc, why it matters. Printed

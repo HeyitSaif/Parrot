@@ -114,7 +114,7 @@ On first launch, Parrot walks you through the two permissions it needs:
 1. **Screen Recording** — this is simply how macOS exposes system audio. Parrot only captures audio, never your screen content
 2. **Microphone** — your side of the call
 
-The onboarding page shows live status for both and deep-links to the exact Settings panes. One macOS quirk to know: Screen Recording takes effect when the app restarts — if the row doesn't turn green after you grant it, quit and reopen Parrot (onboarding picks up right where you left off).
+The onboarding page shows live status for both and deep-links to the exact Settings panes. One macOS quirk to know: Screen Recording takes effect when the app restarts — if the row doesn't turn green after you grant it, quit and reopen Parrot (onboarding picks up right where you left off). And if you ever want the walkthrough again, it's one click away: Help → Show Welcome Tour.
 
 ### Choose a Model
 
