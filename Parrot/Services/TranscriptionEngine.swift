@@ -64,6 +64,12 @@ final class TranscriptionEngine {
     private(set) var isHearingSpeech = false
     private var lastSpeechAt = Date.distantPast
     private(set) var modelState: ModelState = .notLoaded
+    /// Display name of the model currently downloading/preparing, set at the
+    /// start of every load — the status views use it to answer "which model
+    /// is this?" when the picker selection and the in-flight load disagree.
+    private(set) var loadingModelName: String?
+    private var loadTask: Task<Void, Never>?
+    private var loadGeneration = 0
     /// One-line notice when a cloud backend can't be used (missing key, API
     /// errors) and the session is running on-device instead. Shown in the
     /// live device bar.
@@ -109,7 +115,22 @@ final class TranscriptionEngine {
     /// never blocked. Same rule for start/stopTranscribing below.
     @MainActor
     func loadModel(_ modelName: String = "base") async {
+        // Switching models mid-download must not race two loads (the old
+        // last-finisher-wins behavior could load a model the user had already
+        // navigated away from). The newest call cancels the previous one; the
+        // generation check drops the loser's late callbacks and results.
+        loadTask?.cancel()
+        loadGeneration += 1
+        let generation = loadGeneration
+        let task = Task { @MainActor in await self.performLoad(modelName, generation: generation) }
+        loadTask = task
+        await task.value
+    }
+
+    @MainActor
+    private func performLoad(_ modelName: String, generation: Int) async {
         isReady = false
+        loadingModelName = Self.displayName(for: modelName)
         do {
             let resolvedModelName = Self.hubVariant(for: modelName)
             let modelFolder: URL
@@ -121,13 +142,15 @@ final class TranscriptionEngine {
                     try await WhisperKit.download(variant: resolvedModelName) { progress in
                         let fraction = min(max(progress.fractionCompleted, 0), 1)
                         Task { @MainActor [weak self] in
-                            guard let self, case .downloading(let current) = self.modelState else { return }
+                            guard let self, self.loadGeneration == generation,
+                                  case .downloading(let current) = self.modelState else { return }
                             self.modelState = .downloading(progress: max(current, fraction))
                         }
                     }
                 }
             }
 
+            guard loadGeneration == generation else { return }
             modelState = .loading
             let config = WhisperKitConfig(
                 model: resolvedModelName,
@@ -138,10 +161,13 @@ final class TranscriptionEngine {
                 load: true,
                 download: false
             )
-            whisperKit = try await Self.withTimeout(seconds: 300) { try await WhisperKit(config) }
+            let kit = try await Self.withTimeout(seconds: 300) { try await WhisperKit(config) }
+            guard loadGeneration == generation else { return }
+            whisperKit = kit
             modelState = .ready
             isReady = true
         } catch {
+            guard loadGeneration == generation, !(error is CancellationError) else { return }
             modelState = .error(error.localizedDescription)
             isReady = false
         }
@@ -155,6 +181,17 @@ final class TranscriptionEngine {
     /// Stored tags stay as-is; only this boundary maps.
     nonisolated static func hubVariant(for modelName: String) -> String {
         modelName == "large-v3-turbo" ? "large-v3-v20240930" : modelName
+    }
+
+    /// Human-readable model names for the status line, so "which model is
+    /// downloading?" is answerable mid-flight. Falls back to the raw tag.
+    nonisolated static func displayName(for modelName: String) -> String {
+        switch modelName {
+        case "large-v3-turbo": "Large V3 Turbo"
+        case "large-v3-v20240930_626MB": "Large V3 Turbo Compressed"
+        case "tiny", "base", "small", "medium": modelName.capitalized
+        default: modelName
+        }
     }
 
     /// The on-disk folder for a model, if already downloaded. WhisperKit's repo

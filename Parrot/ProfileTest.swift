@@ -417,6 +417,9 @@ enum ProfileTest {
                     "distil-whisper_distil-large-v3"]
         check("hub variant maps the turbo tag", TranscriptionEngine.hubVariant(for: "large-v3-turbo") == "large-v3-v20240930")
         check("hub variant passes other tags through", TranscriptionEngine.hubVariant(for: "base") == "base")
+        check("display name for turbo", TranscriptionEngine.displayName(for: "large-v3-turbo") == "Large V3 Turbo")
+        check("display name for compressed", TranscriptionEngine.displayName(for: "large-v3-v20240930_626MB") == "Large V3 Turbo Compressed")
+        check("display name capitalizes plain tags", TranscriptionEngine.displayName(for: "base") == "Base")
         check("folder match base", TranscriptionEngine.matchModelFolder("base", in: disk) == "openai_whisper-base")
         check("folder match turbo resolves via hub variant",
               TranscriptionEngine.matchModelFolder("large-v3-turbo", in: disk) == "openai_whisper-large-v3-v20240930")

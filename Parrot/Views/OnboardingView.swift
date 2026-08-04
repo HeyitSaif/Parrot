@@ -241,7 +241,8 @@ struct OnboardingView: View {
                     .foregroundStyle(Theme.Colors.ink2)
             }
         case .downloading(let progress):
-            ModelDownloadProgressView(progress: progress)
+            ModelDownloadProgressView(progress: progress,
+                                      modelName: recordingManager.transcriptionEngine.loadingModelName)
         case .ready:
             Label("Model ready!", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(Theme.Colors.good)

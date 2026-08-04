@@ -181,14 +181,15 @@ struct DashboardView: View {
                 ProgressView()
                     .controlSize(.small)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Preparing WhisperKit model…")
+                    Text("Preparing \(recordingManager.transcriptionEngine.loadingModelName ?? "WhisperKit model")…")
                     Text("The first load can take a few minutes.")
                 }
                 .font(.appCaption)
                 .foregroundStyle(Theme.Colors.ink2)
             }
         case .downloading(let progress):
-            ModelDownloadProgressView(progress: progress)
+            ModelDownloadProgressView(progress: progress,
+                                      modelName: recordingManager.transcriptionEngine.loadingModelName)
         case .ready:
             Label("Ready to record", systemImage: "checkmark.circle")
                 .foregroundStyle(Theme.Colors.good)
