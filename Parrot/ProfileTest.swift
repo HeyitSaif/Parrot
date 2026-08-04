@@ -36,6 +36,7 @@ enum ProfileTest {
         testBugReport()
         testSegmenter()
         testCopilotBudget()
+        testDiarizedLabel()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -532,6 +533,22 @@ enum ProfileTest {
         let two = speech(5) + silence(Seg.pauseFrames) + speech(5) + silence(Seg.pauseFrames)
         check("seg cuts one utterance at a time",
               Seg.nextCut(in: two, draining: false) == .init(dropLeading: 0, take: (5 + Seg.padFrames) * Seg.frame))
+    }
+
+    static func testDiarizedLabel() {
+        typealias Turn = DiarizationEngine.SpeakerSegmentResult
+        let turns = [
+            Turn(speakerLabel: "Speaker 1", startTime: 0, endTime: 10),
+            Turn(speakerLabel: "Speaker 2", startTime: 12, endTime: 20),
+        ]
+        check("diarize max overlap wins",
+              RecordingManager.diarizedLabel(for: (9, 14), turns: turns) == "Speaker 2")
+        check("diarize zero overlap picks nearest turn",
+              RecordingManager.diarizedLabel(for: (10.2, 10.9), turns: turns) == "Speaker 1")
+        check("diarize after everything picks last turn",
+              RecordingManager.diarizedLabel(for: (25, 26), turns: turns) == "Speaker 2")
+        check("diarize no turns gives nil",
+              RecordingManager.diarizedLabel(for: (0, 1), turns: []) == nil)
     }
 
     // The #20 budget controls: pace presets, the live context window, pause.

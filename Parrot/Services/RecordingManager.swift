@@ -614,20 +614,19 @@ final class RecordingManager {
 
         do {
             let audioURL = URL(fileURLWithPath: audioPath)
-            let speakerSegments = try await diarizationEngine.diarize(audioURL: audioURL)
+            let output = try await diarizationEngine.diarize(audioURL: audioURL)
 
             // Assign speaker labels to transcript segments by time overlap.
             // "Me" segments come from the mic stream and are already attributed;
             // diarization only refines who's who within the system audio ("Them").
-            for transcriptSegment in meeting.segments {
-                guard transcriptSegment.speakerLabel != "Me" else { continue }
-                let bestMatch = speakerSegments.max { a, b in
-                    overlap(a, transcriptSegment) < overlap(b, transcriptSegment)
-                }
-                if let match = bestMatch, overlap(match, transcriptSegment) > 0 {
-                    transcriptSegment.speakerLabel = match.speakerLabel
+            for transcriptSegment in meeting.segments where transcriptSegment.speakerLabel != "Me" {
+                if let label = Self.diarizedLabel(
+                    for: (transcriptSegment.startTime, transcriptSegment.endTime),
+                    turns: output.segments) {
+                    transcriptSegment.speakerLabel = label
                 }
             }
+            meeting.speakerEmbeddingsData = try? JSONEncoder().encode(output.embeddings)
             try? modelContext?.save()
         } catch {
             // Diarization is a refinement pass; the audio and transcript are
@@ -638,14 +637,22 @@ final class RecordingManager {
         }
     }
 
-    /// Calculate time overlap between a speaker segment and transcript segment
-    private nonisolated func overlap(
-        _ speaker: DiarizationEngine.SpeakerSegmentResult,
-        _ transcript: TranscriptSegment
-    ) -> TimeInterval {
-        let overlapStart = max(speaker.startTime, transcript.startTime)
-        let overlapEnd = min(speaker.endTime, transcript.endTime)
-        return max(0, overlapEnd - overlapStart)
+    /// Best speaker turn for a transcript segment: max time overlap, else the
+    /// nearest turn in time — so every non-Me segment gets a label instead of
+    /// leaving stray "Them" holes where diarization saw no speech.
+    nonisolated static func diarizedLabel(
+        for segment: (start: TimeInterval, end: TimeInterval),
+        turns: [DiarizationEngine.SpeakerSegmentResult]
+    ) -> String? {
+        var best: (label: String, overlap: TimeInterval)?
+        var nearest: (label: String, gap: TimeInterval)?
+        for turn in turns {
+            let overlap = min(turn.endTime, segment.end) - max(turn.startTime, segment.start)
+            if overlap > 0, overlap > (best?.overlap ?? 0) { best = (turn.speakerLabel, overlap) }
+            let gap = max(turn.startTime - segment.end, segment.start - turn.endTime)
+            if nearest == nil || gap < nearest!.gap { nearest = (turn.speakerLabel, gap) }
+        }
+        return best?.label ?? nearest?.label
     }
 
     var formattedElapsedTime: String {

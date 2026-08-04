@@ -44,6 +44,9 @@ final class Meeting {
     /// Per-call AI usage/cost snapshot (AIUsage JSON); nil for meetings recorded
     /// before cost tracking existed — those show no cost row.
     var aiUsageData: Data?
+    /// Mean voice embedding per speaker label (JSON [String: [Float]]), written
+    /// by diarization; feeds voice profiles later. Defaulted → old rows migrate.
+    var speakerEmbeddingsData: Data? = nil
 
     @Relationship(deleteRule: .cascade, inverse: \TranscriptSegment.meeting)
     var segments: [TranscriptSegment]
