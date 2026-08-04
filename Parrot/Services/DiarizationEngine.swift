@@ -3,7 +3,7 @@ import FluidAudio
 
 /// Post-meeting speaker diarization over the system-audio track, backed by
 /// FluidAudio's chunked pyannote pipeline (CoreML, fully on-device).
-/// Models (~34 MB, CC-BY-4.0) auto-download to Application Support on first use.
+/// Models (~13 MB, CC-BY-4.0) auto-download to Application Support on first use.
 ///
 /// Pipeline choice, validated 2026-08-04 on a real 3-person Turkish call:
 /// the chunked `DiarizerManager` separates two similar remote voices at

@@ -158,7 +158,7 @@ existing interface; everything downstream already works.
   knob and why.
 - Models: `DiarizerModels.downloadIfNeeded()` on first use; surface state via
   the same pattern as Whisper model download (progress in Settings +
-  first-run). Settings row shows "Speaker detection models (34 MB)" with
+  first-run). Settings row shows "Speaker detection models (13 MB)" with
   download/delete. No models → postProcess silently keeps "Them" (current
   soft-degrade), plus a one-time hint.
 - Assignment: keep max-overlap, add fallback — a non-Me segment with zero

@@ -285,11 +285,11 @@ struct SettingsView: View {
 
             Section("Speaker Detection") {
                 if DiarizationEngine.modelsInstalled {
-                    LabeledContent("Models", value: "Downloaded (~34 MB)")
+                    LabeledContent("Models", value: "Downloaded (~13 MB)")
                     Button("Remove Models") { DiarizationEngine.removeModels() }
                 } else {
                     LabeledContent("Models", value: "Not downloaded")
-                    Button(diarizerDownloading ? "Downloading…" : "Download (~34 MB)") {
+                    Button(diarizerDownloading ? "Downloading…" : "Download (~13 MB)") {
                         diarizerDownloading = true
                         Task {
                             try? await recordingManager.diarizationEngine.ensureModels()

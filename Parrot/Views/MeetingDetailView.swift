@@ -394,7 +394,7 @@ struct MeetingDetailView: View {
                               systemImage: "person.2.wave.2")
                     }
                     .disabled(recordingManager.diarizationEngine.isProcessing)
-                    .help("Figure out who said what, on this Mac. Downloads a 34 MB model on first use.")
+                    .help("Figure out who said what, on this Mac. Downloads a 13 MB model on first use.")
                 }
                 .font(Theme.Typography.caption)
                 .padding(.horizontal, Theme.Metrics.pad)
