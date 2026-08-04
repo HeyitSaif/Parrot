@@ -134,6 +134,20 @@ their most-demanded feature, and it's already on Parrot's wishlist.
 Replace `DiarizationEngine`'s energy heuristic with FluidAudio behind the
 existing interface; everything downstream already works.
 
+> **Implementation finding (2026-08-04, phase 1 built):** FluidAudio ships
+> two pipelines and the benchmark-preferred one loses on our real data. The
+> offline VBx pipeline (`OfflineDiarizerManager`, 15% DER on AMI) merges the
+> Aug 3 call's two similar remote voices at EVERY clustering threshold
+> 0.2–0.6 — its VBx stage won't keep them apart. The chunked pipeline
+> (`DiarizerManager`, worse on AMI) separates them correctly and identically
+> in debug and release at threshold 0.5–0.6. Phase 1 ships the **chunked**
+> pipeline at threshold 0.6, pinned to the validated revision. (Beware when
+> reproducing with `fluidaudiocli`: its `process` command defaults to
+> `--mode streaming` = the chunked pipeline, not offline.) App size cost of
+> the dependency: +13 MB (18→31 MB), largely the NemoTextProcessing
+> xcframework FluidAudio links for its unused-by-us TTS/ASR side — candidate
+> for trimming later.
+
 - `Package.swift`: add `FluidAudio` (pin exact version).
 - `DiarizationEngine.diarize(audioURL:)` → load 16 kHz floats (already have
   caf reader), `DiarizerManager.performCompleteDiarization(samples)`, map

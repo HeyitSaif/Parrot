@@ -1,5 +1,15 @@
 # Speaker Diarization Phase 1 Implementation Plan
 
+> **Outcome (2026-08-04):** executed inline, all tasks done, with one
+> deviation discovered during validation: the engine uses the **chunked
+> `DiarizerManager` pipeline, not `OfflineDiarizerManager`** — the offline
+> VBx pipeline merges the reference call's two similar voices at every
+> threshold (0.2–0.6) while the chunked one separates them (validated
+> 407s/44s on the Aug 3 call, identical in debug and release). Threshold is
+> `Float 0.6`; the dependency is pinned to revision `5390df9` (see the spec's
+> phase-1 implementation finding). `fluidaudiocli process` defaults to the
+> chunked/streaming pipeline — keep that in mind when cross-checking.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the placeholder energy-based diarizer with FluidAudio's offline CoreML pyannote pipeline so multi-person calls get real "Speaker 1/2/…" labels, with embeddings persisted and old meetings re-processable.

@@ -14,7 +14,7 @@ packages:
   # with Package.swift.
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
-    exactVersion: "0.15.5"
+    revision: 5390df9752c8fc583596018360c5fd70d6fa6c75
   # Vendored SpeexDSP for acoustic echo cancellation (mic + system-audio reference).
   CSpeexDSP:
     path: Vendor/CSpeexDSP

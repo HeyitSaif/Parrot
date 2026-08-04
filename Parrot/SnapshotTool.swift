@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import SwiftData
 import WhisperKit
+import FluidAudio
 import AVFoundation
 
 /// Dev-only: transcribes a real audio file with the production decoding options to

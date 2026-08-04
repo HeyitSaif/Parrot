@@ -2,8 +2,15 @@ import Foundation
 import FluidAudio
 
 /// Post-meeting speaker diarization over the system-audio track, backed by
-/// FluidAudio's offline pyannote pipeline (CoreML, fully on-device).
+/// FluidAudio's chunked pyannote pipeline (CoreML, fully on-device).
 /// Models (~34 MB, CC-BY-4.0) auto-download to Application Support on first use.
+///
+/// Pipeline choice, validated 2026-08-04 on a real 3-person Turkish call:
+/// the chunked `DiarizerManager` separates two similar remote voices at
+/// threshold 0.5–0.6, while `OfflineDiarizerManager` (better on published
+/// AMI benchmarks) merges them at EVERY threshold 0.2–0.6 — its VBx stage
+/// won't keep these voices apart. Real recordings beat benchmarks; re-check
+/// with --diarize-test before switching pipelines.
 @Observable
 final class DiarizationEngine {
     private(set) var isProcessing = false
@@ -22,20 +29,21 @@ final class DiarizationEngine {
         let embeddings: [String: [Float]]
     }
 
-    /// The library default (0.7) merged two similar Turkish voices on a real
-    /// call; 0.5–0.6 separated them. ponytail: the one calibration knob —
-    /// re-validate with scripts/dev/diarization-compare.py when bumping the
+    /// The one calibration knob. On the reference call: 0.70 (library
+    /// default) merges the two remote voices, 0.5–0.6 separates them
+    /// correctly, 0.4 shatters into 14 fragments. ponytail: re-validate with
+    /// --diarize-test + scripts/dev/diarization-compare.py when bumping the
     /// FluidAudio pin.
-    static let clusteringThreshold = 0.6
+    static let clusteringThreshold: Float = 0.6
 
     static var modelsInstalled: Bool {
-        let dir = OfflineDiarizerModels.defaultModelsDirectory()
+        let dir = DiarizerModels.defaultModelsDirectory()
         let items = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         return !items.isEmpty
     }
 
     static func removeModels() {
-        try? FileManager.default.removeItem(at: OfflineDiarizerModels.defaultModelsDirectory())
+        try? FileManager.default.removeItem(at: DiarizerModels.defaultModelsDirectory())
     }
 
     /// Downloads models if missing (first run needs network). Lets Settings
@@ -43,7 +51,7 @@ final class DiarizationEngine {
     func ensureModels() async throws {
         isProcessing = true
         defer { isProcessing = false }
-        _ = try await OfflineDiarizerModels.load()
+        _ = try await DiarizerModels.downloadIfNeeded()
     }
 
     func diarize(audioURL: URL) async throws -> Output {
@@ -54,17 +62,21 @@ final class DiarizationEngine {
             progress = 1.0
         }
 
-        let config = OfflineDiarizerConfig(clusteringThreshold: Self.clusteringThreshold)
-        let manager = OfflineDiarizerManager(config: config)
-        let models = try await OfflineDiarizerModels.load()
-        manager.initialize(models: models)
-        progress = 0.2
+        let models = try await DiarizerModels.downloadIfNeeded()
+        progress = 0.3
 
-        let result = try await manager.process(audioURL) { [weak self] done, total in
-            guard total > 0 else { return }
-            let fraction = Double(done) / Double(total)
-            Task { @MainActor in self?.progress = 0.2 + 0.75 * fraction }
-        }
+        // The chunked pipeline is synchronous and CPU/ANE-heavy (~seconds for
+        // a long call) — keep it off the calling actor.
+        let threshold = Self.clusteringThreshold
+        let result = try await Task.detached(priority: .userInitiated) {
+            var config = DiarizerConfig()
+            config.clusteringThreshold = threshold
+            let manager = DiarizerManager(config: config)
+            manager.initialize(models: models)
+            let samples = try AudioConverter().resampleAudioFile(audioURL)
+            return try manager.performCompleteDiarization(samples, sampleRate: 16000)
+        }.value
+        progress = 0.95
 
         // Stable, human-meaningful labels: Speaker 1 talked the most.
         let bySpeaker = Dictionary(grouping: result.segments, by: \.speakerId)
