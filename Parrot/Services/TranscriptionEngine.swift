@@ -64,6 +64,12 @@ final class TranscriptionEngine {
     private(set) var isHearingSpeech = false
     private var lastSpeechAt = Date.distantPast
     private(set) var modelState: ModelState = .notLoaded
+    /// Display name of the model currently downloading/preparing, set at the
+    /// start of every load — the status views use it to answer "which model
+    /// is this?" when the picker selection and the in-flight load disagree.
+    private(set) var loadingModelName: String?
+    private var loadTask: Task<Void, Never>?
+    private var loadGeneration = 0
     /// One-line notice when a cloud backend can't be used (missing key, API
     /// errors) and the session is running on-device instead. Shown in the
     /// live device bar.
@@ -109,21 +115,59 @@ final class TranscriptionEngine {
     /// never blocked. Same rule for start/stopTranscribing below.
     @MainActor
     func loadModel(_ modelName: String = "base") async {
-        modelState = .loading
-        let variant = Self.hubVariant(for: modelName)
+        // Switching models mid-download must not race two loads (the old
+        // last-finisher-wins behavior could load a model the user had already
+        // navigated away from). The newest call cancels the previous one; the
+        // generation check drops the loser's late callbacks and results.
+        loadTask?.cancel()
+        loadGeneration += 1
+        let generation = loadGeneration
+        let task = Task { @MainActor in await self.performLoad(modelName, generation: generation) }
+        loadTask = task
+        await task.value
+    }
+
+    @MainActor
+    private func performLoad(_ modelName: String, generation: Int) async {
+        isReady = false
+        loadingModelName = Self.displayName(for: modelName)
         do {
+            let resolvedModelName = Self.hubVariant(for: modelName)
+            let modelFolder: URL
+            if let localFolder = Self.localModelFolder(for: modelName) {
+                modelFolder = localFolder
+            } else {
+                modelState = .downloading(progress: 0)
+                modelFolder = try await Self.withTimeout(seconds: 300) {
+                    try await WhisperKit.download(variant: resolvedModelName) { progress in
+                        let fraction = min(max(progress.fractionCompleted, 0), 1)
+                        Task { @MainActor [weak self] in
+                            guard let self, self.loadGeneration == generation,
+                                  case .downloading(let current) = self.modelState else { return }
+                            self.modelState = .downloading(progress: max(current, fraction))
+                        }
+                    }
+                }
+            }
+
+            guard loadGeneration == generation else { return }
+            modelState = .loading
             let config = WhisperKitConfig(
-                model: variant,
-                modelFolder: Self.localModelFolder(for: variant)?.path,
+                model: resolvedModelName,
+                modelFolder: modelFolder.path,
                 verbose: false,
                 logLevel: .none,
                 prewarm: true,
-                load: true
+                load: true,
+                download: false
             )
-            whisperKit = try await Self.withTimeout(seconds: 300) { try await WhisperKit(config) }
+            let kit = try await Self.withTimeout(seconds: 300) { try await WhisperKit(config) }
+            guard loadGeneration == generation else { return }
+            whisperKit = kit
             modelState = .ready
             isReady = true
         } catch {
+            guard loadGeneration == generation, !(error is CancellationError) else { return }
             modelState = .error(error.localizedDescription)
             isReady = false
         }
@@ -139,25 +183,70 @@ final class TranscriptionEngine {
         modelName == "large-v3-turbo" ? "large-v3-v20240930" : modelName
     }
 
+    /// Human-readable model names for the status line, so "which model is
+    /// downloading?" is answerable mid-flight. Falls back to the raw tag.
+    nonisolated static func displayName(for modelName: String) -> String {
+        switch modelName {
+        case "large-v3-turbo": "Large V3 Turbo"
+        case "large-v3-v20240930_626MB": "Large V3 Turbo Compressed"
+        case "tiny", "base", "small", "medium": modelName.capitalized
+        default: modelName
+        }
+    }
+
     /// The on-disk folder for a model, if already downloaded. WhisperKit's repo
     /// spells variants inconsistently ('_' vs '-' between segments), hence the
-    /// normalized matcher below.
+    /// normalized matcher below. A matching folder is not enough: Hub creates
+    /// the destination before every file arrives, so an interrupted download
+    /// must be rejected and resumed instead of loaded.
     nonisolated static func localModelFolder(for modelName: String) -> URL? {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml", isDirectory: true)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: base.path)) ?? []
-        return matchModelFolder(modelName, in: names)
-            .map { base.appendingPathComponent($0, isDirectory: true) }
+        guard let name = matchModelFolder(modelName, in: names) else { return nil }
+        let folder = base.appendingPathComponent(name, isDirectory: true)
+        return isCompleteModelFolder(folder) ? folder : nil
+    }
+
+    /// WhisperKit requires these three compiled pipelines. Checking files inside
+    /// each bundle (rather than only the bundle directory) catches interrupted
+    /// Hugging Face snapshots such as issue #30's partial Turbo download.
+    nonisolated static var requiredModelFiles: [String] {
+        [
+            "MelSpectrogram.mlmodelc/model.mil",
+            "MelSpectrogram.mlmodelc/coremldata.bin",
+            "MelSpectrogram.mlmodelc/weights/weight.bin",
+            "AudioEncoder.mlmodelc/model.mil",
+            "AudioEncoder.mlmodelc/coremldata.bin",
+            "AudioEncoder.mlmodelc/weights/weight.bin",
+            "TextDecoder.mlmodelc/model.mil",
+            "TextDecoder.mlmodelc/coremldata.bin",
+            "TextDecoder.mlmodelc/weights/weight.bin",
+            "config.json",
+            "generation_config.json",
+        ]
+    }
+
+    nonisolated static func isCompleteModelFolder(_ folder: URL) -> Bool {
+        requiredModelFiles.allSatisfy {
+            FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path)
+        }
     }
 
     /// Pure matcher (so --profile-test can drive it): compares case-insensitively
-    /// with '_' and '-' unified. Exactly one hit counts — none or ambiguity falls
-    /// back to WhisperKit's own hub resolution.
+    /// with '_' and '-' unified. The current artifact wins over a legacy copy;
+    /// ambiguity within either name falls back to WhisperKit's hub resolution.
     nonisolated static func matchModelFolder(_ modelName: String, in folderNames: [String]) -> String? {
         func norm(_ s: String) -> String { s.lowercased().replacingOccurrences(of: "_", with: "-") }
-        let want = "openai-whisper-" + norm(modelName)
-        let hits = folderNames.filter { norm($0) == want }
-        return hits.count == 1 ? hits.first : nil
+        let resolvedName = hubVariant(for: modelName)
+        let names = resolvedName == modelName ? [modelName] : [resolvedName, modelName]
+        for name in names {
+            let wanted = "openai-whisper-" + norm(name)
+            let hits = folderNames.filter { norm($0) == wanted }
+            if hits.count > 1 { return nil }
+            if let hit = hits.first { return hit }
+        }
+        return nil
     }
 
     private struct ModelLoadTimeout: LocalizedError {
