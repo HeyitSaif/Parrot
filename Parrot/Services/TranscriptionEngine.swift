@@ -468,9 +468,10 @@ final class TranscriptionEngine {
         transcriptionTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
 
-            // Rolling-preview throttle, per source. ponytail: 1.5s cadence —
-            // lower feels livelier but re-decodes long utterances more often.
-            let previewEvery: TimeInterval = 1.5
+            // Rolling-preview throttle, per source. ponytail: 2s cadence —
+            // lower feels livelier but each preview re-decodes the utterance,
+            // stealing Whisper time from the commit that makes cards land.
+            let previewEvery: TimeInterval = 2.0
             var lastPreview: [AudioSource: Date] = [:]
 
             while !Task.isCancelled {
@@ -522,19 +523,15 @@ final class TranscriptionEngine {
                                 : pending.reduce(into: Float(0)) { $0 += abs($1) } / Float(pending.count)
                             if energy > Segmenter.silenceFloor, let whisperKit = self.whisperKit {
                                 lastPreview[source] = Date()
-                                let interim: TranscriptionCallback = { [weak self] progress in
-                                    let raw = Self.cleaned(progress.text)
-                                    // Interims flash the glossary echo too — strip
-                                    // it for display like everywhere else.
-                                    let partial = (self?.glossaryActive == true)
-                                        ? (Self.strippingGlossaryEcho(raw) ?? "") : raw
-                                    if !partial.isEmpty {
-                                        Task { @MainActor in self?.currentText = partial }
-                                    }
-                                    return nil
-                                }
+                                // No interim callback here on purpose: each preview
+                                // re-decodes from the utterance's start, so streaming
+                                // its words made the bubble restart the same sentence
+                                // every cycle (dry-run feedback, 2026-08-01). The
+                                // bubble now updates once per preview with the fuller
+                                // text; word-by-word streaming stays on the commit
+                                // decode where it reads forward, not in circles.
                                 let result = (try? await whisperKit.transcribe(
-                                    audioArray: pending, decodeOptions: decodeOptions, callback: interim)) ?? []
+                                    audioArray: pending, decodeOptions: decodeOptions)) ?? []
                                 let raw = Self.cleaned(result.map(\.text).joined(separator: " "))
                                 let display = self.glossaryActive ? (Self.strippingGlossaryEcho(raw) ?? "") : raw
                                 if !display.isEmpty {
@@ -560,24 +557,15 @@ final class TranscriptionEngine {
                     // fallback when a cloud backend hiccups (never lose a chunk).
                     func decodeLocally() async throws -> [(text: String, confidence: Float?)] {
                         guard let whisperKit = self.whisperKit else { return [] }
-                        // Stream interim words to the live view as they decode; strip
-                        // any stray special/timestamp tokens defensively.
-                        let interimCallback: TranscriptionCallback = { [weak self] progress in
-                            let raw = Self.cleaned(progress.text)
-                            // Same glossary-echo strip as the preview path — the
-                            // live line used to flash "Glossary: …" during quiet.
-                            let partial = (self?.glossaryActive == true)
-                                ? (Self.strippingGlossaryEcho(raw) ?? "") : raw
-                            if !partial.isEmpty {
-                                Task { @MainActor in self?.currentText = partial }
-                            }
-                            return nil
-                        }
+                        // No interim streaming here anymore: the rolling preview is
+                        // the live text, and re-streaming the same sentence from
+                        // word one during the commit decode made its tail appear
+                        // three times over (preview, re-stream, committed bubble —
+                        // the "repeated 3 times" dry-run report, 2026-08-01).
                         func decode(_ options: DecodingOptions) async throws -> [(text: String, confidence: Float?)] {
                             let result = try await whisperKit.transcribe(
                                 audioArray: chunk,
-                                decodeOptions: options,
-                                callback: interimCallback
+                                decodeOptions: options
                             )
                             return result.map { transcription in
                                 (transcription.text,
