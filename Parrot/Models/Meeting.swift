@@ -47,6 +47,11 @@ final class Meeting {
     /// Mean voice embedding per speaker label (JSON [String: [Float]]), written
     /// by diarization; feeds voice profiles later. Defaulted → old rows migrate.
     var speakerEmbeddingsData: Data? = nil
+    /// Per-speaker display names (JSON [label: name]); set from the naming UI.
+    /// Defaulted → old rows migrate.
+    var speakerNamesData: Data? = nil
+    /// One-time "name the voices" card dismissed. Defaulted → old rows migrate.
+    var speakerPromptDismissed: Bool = false
 
     @Relationship(deleteRule: .cascade, inverse: \TranscriptSegment.meeting)
     var segments: [TranscriptSegment]
@@ -105,12 +110,48 @@ final class Meeting {
         Set(segments.map { displayName(forSpeaker: $0.speakerLabel) }).count
     }
 
-    /// Human-facing speaker name: "Me" stays "Me"; everyone else becomes the
-    /// user-assigned `themName` (e.g. "Sam") if set, otherwise the raw label.
+    /// Human-facing speaker name. Precedence: a per-speaker name from the
+    /// naming UI wins; "Me" stays "Me"; before any per-speaker naming the
+    /// legacy collective `themName` still covers the whole other side; once
+    /// naming has started, unnamed voices show their raw "Speaker N" label
+    /// (mixing "Gürkan" with a collective name would misattribute lines).
     func displayName(forSpeaker label: String?) -> String {
-        guard let label, !label.isEmpty else { return themName ?? "Them" }
+        let names = speakerNames
+        guard let label, !label.isEmpty else {
+            return names.isEmpty ? (themName ?? "Them") : "Them"
+        }
+        if let assigned = names[label] { return assigned }
         if label == "Me" { return "Me" }
-        return themName ?? label
+        return names.isEmpty ? (themName ?? label) : label
+    }
+
+    /// Per-speaker display names (see `speakerNamesData`).
+    var speakerNames: [String: String] {
+        get {
+            guard let data = speakerNamesData else { return [:] }
+            return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+        }
+        set { speakerNamesData = try? JSONEncoder().encode(newValue) }
+    }
+
+    /// Distinct non-Me speaker labels, "Speaker 1" first.
+    var otherSpeakerLabels: [String] {
+        Set(segments.compactMap(\.speakerLabel)).subtracting(["Me"])
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// This voice's longest utterances — the clips the naming UI plays.
+    func longestSegments(for label: String, count: Int = 3) -> [TranscriptSegment] {
+        segments.filter { $0.speakerLabel == label }
+            .sorted { ($0.endTime - $0.startTime) > ($1.endTime - $1.startTime) }
+            .prefix(count).map { $0 }
+    }
+
+    /// Named participants joined for list subtitles; nil until someone is
+    /// named (callers fall back to `themName`).
+    var participantsSummary: String? {
+        let named = otherSpeakerLabels.compactMap { speakerNames[$0] }
+        return named.isEmpty ? nil : named.joined(separator: ", ")
     }
 
     var formattedDuration: String {
