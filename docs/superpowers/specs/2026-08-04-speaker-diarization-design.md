@@ -220,11 +220,21 @@ switch to display names so reports say "Gürkan flagged onboarding" instead of
 FluidAudio has streaming diarizers, but their published numbers say choose
 carefully: chunked-pyannote streaming is bad (38–53% DER — avoid), Sortformer
 is ≤4 speakers at 31.7% DER (NVIDIA Open Model License — legal review before
-shipping), **LS-EEND is the target**: up to 10 speakers, 100 ms updates,
-20.7% DER, MIT models, plus `enrollSpeaker` pre-enrollment. Live labels will
-still be visibly worse than the post-call pass — show provisional Speaker N
-live, reconcile when the call ends. Copilot prompts gain speaker names
-mid-call. Not designed further here — post-call value ships first.
+shipping), **LS-EEND is the streaming target**: up to 10 speakers, 100 ms
+updates, 20.7% DER, MIT models, plus `enrollSpeaker` pre-enrollment.
+
+Evaluate first the simpler route the prototype numbers suggest: **periodic
+offline re-runs** — at ~380× realtime, re-diarizing the entire
+system track so far costs single-digit seconds even for an hour-long call,
+so a refresh every ~30 s gives near-offline accuracy on everything but the
+newest seconds, with no second model family. Requires stable label mapping
+across runs (match new clusters to previous ones by embedding similarity so
+Speaker 1 doesn't flip to Speaker 2 mid-call).
+
+Either way: live labels are provisional and visibly worse than the final
+pass — reconcile silently when the call ends. Copilot prompts gain speaker
+labels (and profile names, phase 3) mid-call. Not designed further here —
+post-call value ships first.
 
 ## Migration
 
