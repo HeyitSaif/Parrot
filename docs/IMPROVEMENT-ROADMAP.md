@@ -33,6 +33,7 @@ truth for the post-test improvement effort. Update the status table as work land
 | **$** | Per-call AI cost transparency | 🟡 built | Every Anthropic response's `usage` tokens metered in the provider; frozen to `Meeting.aiUsageData` at end of post-call chain with transcription/polish audio seconds. `AIPricing` table (haiku $1/$5 per MTok verified 2026-07-02) + pure `costBreakdown()` (12 harness checks). Detail header shows "AI cost ~$X" row with click-to-expand breakdown popover, labeled estimated; old meetings show nothing. Eyeball after next recorded call. |
 
 | — | Calendar connect + onboarding step | ⬜ not started | From the 2026-08-04 competitor onboarding teardown: sync calendars for meeting reminders, and give onboarding a "Connect calendar" step (Google / Outlook / Skip) once the integration exists. |
+| — | Audio-only capture permission (macOS 15+) | ⬜ not started | Also from the teardown: Anarlog sits in TCC's "System Audio Recording Only" list, not the scary "Screen & System Audio Recording" one. Core Audio process taps (macOS 14.2+/15 APIs) capture system audio with no screen-content rights, so the Screen Recording ask disappears from onboarding entirely. Capture-engine change in `AudioCaptureManager`: tap path on new macOS, current ScreenCaptureKit path kept for 14.x. |
 
 Legend: ⬜ not started · 🟡 built (awaiting your eyeball) · ✅ done · ⏸ paused
 
