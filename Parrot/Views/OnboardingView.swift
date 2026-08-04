@@ -16,6 +16,7 @@ struct OnboardingView: View {
                 case 0: welcomeStep
                 case 1: permissionsStep
                 case 2: modelStep
+                case 3: readyStep
                 default: welcomeStep
                 }
             }
@@ -36,7 +37,7 @@ struct OnboardingView: View {
 
                 // Step indicators
                 HStack(spacing: 6) {
-                    ForEach(0..<3) { step in
+                    ForEach(0..<4) { step in
                         Circle()
                             .fill(step == currentStep ? Theme.Colors.accent : Theme.Colors.chip)
                             .frame(width: 8, height: 8)
@@ -45,13 +46,13 @@ struct OnboardingView: View {
 
                 Spacer()
 
-                if currentStep < 2 {
+                if currentStep < 3 {
                     Button("Continue") {
                         withAnimation { currentStep += 1 }
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
-                    Button("Get Started") {
+                    Button("Let's start") {
                         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
                         isPresented = false
                     }
@@ -99,6 +100,13 @@ struct OnboardingView: View {
     // CGPreflight is side-effect-free — querying SCShareableContent instead
     // triggered the macOS permission prompt before the user hit Grant.
     private func refreshPermissions() {
+        // Harness seam: --help-shots sets this (the register(defaults:) trick)
+        // to render the granted look without touching this Mac's real grants.
+        if UserDefaults.standard.bool(forKey: "onboardingSnapshotGranted") {
+            micGranted = true
+            screenGranted = true
+            return
+        }
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         screenGranted = CGPreflightScreenCaptureAccess()
         screenAsked = UserDefaults.standard.bool(forKey: PermissionFlow.screenAskedKey)
@@ -108,14 +116,35 @@ struct OnboardingView: View {
         VStack(spacing: 24) {
             Spacer()
 
-            Text("Permissions Needed")
+            Text("Start with permissions")
                 .font(Theme.Typography.title())
 
-            VStack(alignment: .leading, spacing: 16) {
+            Text("Parrot needs two macOS permissions to hear your calls. Audio only: it never sees your screen, and nothing leaves your Mac.")
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.Colors.ink2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 380)
+
+            VStack(alignment: .leading, spacing: 10) {
                 PermissionRow(
-                    icon: "rectangle.inset.filled.and.person.filled",
-                    title: "Screen Recording",
-                    description: "Required to capture system audio from meetings. Parrot only records audio — never your screen content.",
+                    icon: "mic",
+                    askTitle: "Help Parrot hear you",
+                    grantedTitle: "Parrot can hear you",
+                    subtitle: "Microphone, your side of the call",
+                    isGranted: micGranted,
+                    action: {
+                        Task { @MainActor in
+                            micGranted = await PermissionFlow.requestMicrophone()
+                        }
+                    }
+                )
+
+                PermissionRow(
+                    icon: "speaker.wave.2",
+                    askTitle: "Help Parrot hear your meeting",
+                    grantedTitle: "Parrot can hear your meeting",
+                    subtitle: "Screen Recording, the other side of the call",
                     isGranted: screenGranted,
                     action: {
                         if PermissionFlow.requestScreenCapture() == .granted {
@@ -129,34 +158,19 @@ struct OnboardingView: View {
                     Text("Already flipped the switch? macOS applies Screen Recording when Parrot restarts — quit and reopen Parrot, and this page will pick up right here.")
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Colors.ink2)
-                        .padding(.leading, 44) // align under the row's text column
                 }
-
-                PermissionRow(
-                    icon: "mic",
-                    title: "Microphone",
-                    description: "Captures your voice for better speaker identification. Your audio stays on this Mac.",
-                    isGranted: micGranted,
-                    action: {
-                        Task { @MainActor in
-                            micGranted = await PermissionFlow.requestMicrophone()
-                        }
-                    }
-                )
             }
             .frame(maxWidth: 380)
-
-            Text("All processing happens locally. Nothing leaves your Mac.")
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Colors.ink2)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: micGranted)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: screenGranted)
 
             Spacer()
         }
         .padding(Theme.Metrics.pad)
         .onAppear(perform: refreshPermissions)
-        // Rows flip green on their own: returning from System Settings fires
-        // didBecomeActive, and the 1 s poll catches grants made while the OS
-        // dialog (a separate process) had focus.
+        // Rows flip to their granted look on their own: returning from System
+        // Settings fires didBecomeActive, and the 1 s poll catches grants made
+        // while the OS dialog (a separate process) had focus.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissions()
         }
@@ -254,45 +268,108 @@ struct OnboardingView: View {
             .buttonStyle(.bordered)
         }
     }
+
+    // MARK: - Step 4: Ready
+
+    @State private var celebrate = false
+
+    private var readyStep: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Text("🎉")
+                .font(.system(size: 72))
+                .scaleEffect(celebrate ? 1.0 : 0.4)
+                .opacity(celebrate ? 1 : 0)
+
+            Text("Ready to go!")
+                .font(.appLargeTitle)
+                .fontWeight(.bold)
+
+            Text("Parrot is set up. Open your next call, hit record, and the transcript stays right here on your Mac.")
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.Colors.ink2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 360)
+
+            Spacer()
+        }
+        .padding(Theme.Metrics.pad)
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.55).delay(0.05)) {
+                celebrate = true
+            }
+        }
+        .onDisappear { celebrate = false }
+    }
 }
 
 // MARK: - Permission Row
 
+/// One permission as a big tappable row, Anarlog-style. Ask state: a dark,
+/// full-width button phrased by outcome ("Help Parrot hear you"). Granted:
+/// an inert light row whose copy flips to the confirmation ("Parrot can hear
+/// you"). The subtitle keeps the real macOS permission name so people can
+/// still recognize the matching System Settings pane.
 struct PermissionRow: View {
     let icon: String
-    let title: String
-    let description: String
+    let askTitle: String
+    let grantedTitle: String
+    let subtitle: String
     var isGranted: Bool = false
     let action: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.appTitle2)
-                .foregroundStyle(Theme.Colors.accent)
-                .frame(width: 32)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(Theme.Typography.cardTitle)
-                Text(description)
-                    .font(Theme.Typography.caption)
-                    .foregroundStyle(Theme.Colors.ink2)
-            }
-
-            Spacer()
-
-            if isGranted {
+        if isGranted {
+            HStack(spacing: 12) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Theme.Colors.good)
                     .font(.appTitle3)
-            } else {
-                Button("Grant") {
-                    action()
+                    .foregroundStyle(Theme.Colors.good)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(grantedTitle)
+                        .font(Theme.Typography.cardTitle)
+                    Text(subtitle)
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Colors.ink3)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+
+                Spacer()
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.Colors.chip, in: RoundedRectangle(cornerRadius: Theme.Metrics.radius))
+        } else {
+            Button(action: action) {
+                HStack(spacing: 12) {
+                    Image(systemName: icon)
+                        .font(.appTitle3)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(askTitle)
+                            .font(Theme.Typography.cardTitle)
+                        Text(subtitle)
+                            .font(Theme.Typography.caption)
+                            .opacity(0.75)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "arrow.right")
+                        .font(Theme.Typography.cardTitle)
+                }
+                // ink-on-canvas inverted: near-black pill in light mode, light
+                // pill in dark mode — high contrast in both without new tokens.
+                .foregroundStyle(Theme.Colors.canvas)
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .background(Theme.Colors.ink, in: RoundedRectangle(cornerRadius: Theme.Metrics.radius))
+                .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.radius))
+            }
+            .buttonStyle(.plain)
         }
     }
 }

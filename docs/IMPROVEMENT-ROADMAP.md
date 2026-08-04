@@ -32,6 +32,8 @@ truth for the post-test improvement effort. Update the status table as work land
 | **T** | T1–T3 · Pluggable transcription (local + BYO-key cloud) | 🟡 built | Backend seam in `TranscriptionEngine`: on-device Whisper (default, free) / Groq whisper-large-v3-turbo (chunk POSTs, ~$0.04/hr) / Deepgram Nova-3 (dual websockets, word-by-word interims ~300 ms). Cloud error → local fallback + device-bar chip. Opt-in post-call **polish pass** re-transcribes both `.caf` tracks via Groq and rebuilds segments before diarization/summary. Settings → Transcription (engine picker + key fields + polish toggle). Local path verified; **Groq/Deepgram live paths need your keys** to smoke. |
 | **$** | Per-call AI cost transparency | 🟡 built | Every Anthropic response's `usage` tokens metered in the provider; frozen to `Meeting.aiUsageData` at end of post-call chain with transcription/polish audio seconds. `AIPricing` table (haiku $1/$5 per MTok verified 2026-07-02) + pure `costBreakdown()` (12 harness checks). Detail header shows "AI cost ~$X" row with click-to-expand breakdown popover, labeled estimated; old meetings show nothing. Eyeball after next recorded call. |
 
+| — | Calendar connect + onboarding step | ⬜ not started | From the 2026-08-04 competitor onboarding teardown: sync calendars for meeting reminders, and give onboarding a "Connect calendar" step (Google / Outlook / Skip) once the integration exists. |
+
 Legend: ⬜ not started · 🟡 built (awaiting your eyeball) · ✅ done · ⏸ paused
 
 ---
