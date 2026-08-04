@@ -12,6 +12,10 @@ struct ContentView: View {
     @State private var hasLoadedModel = false
     /// File → Import Audio… (⌘O); the dashboard has its own importer button.
     @State private var showMenuImporter = false
+    @State private var showBugReport = false
+    /// Grabbed when the button is pressed, before the sheet covers the thing
+    /// the user wants to show us.
+    @State private var reportScreenshot: NSImage?
     private let updateChecker = UpdateChecker.shared
 
     var body: some View {
@@ -67,6 +71,22 @@ struct ContentView: View {
             }
             .padding(.top, 12)
         }
+        // Always reachable, except mid-call: a live recording is the one time
+        // the window is nobody else's business (and it keeps the button out of
+        // call screenshots), same rule the update banner follows.
+        .overlay(alignment: .bottomTrailing) {
+            if !recordingManager.isRecording {
+                BugReportButton { presentBugReport() }
+                    .padding(16)
+                    .transition(.opacity)
+            }
+        }
+        .sheet(isPresented: $showBugReport) {
+            BugReportSheet(screenshot: reportScreenshot)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .parrotReportBug)) { _ in
+            presentBugReport()
+        }
         .animation(.easeInOut(duration: 0.2), value: recordingManager.importProgress)
         // Mirror the selection for the File → Export menu items.
         .onChange(of: selectedMeeting) { _, meeting in
@@ -87,6 +107,11 @@ struct ContentView: View {
             hasLoadedModel = true
             await recordingManager.prepare(modelContext: modelContext)
         }
+    }
+
+    private func presentBugReport() {
+        reportScreenshot = BugReport.captureWindow()
+        showBugReport = true
     }
 
     private func startImport(_ url: URL) {

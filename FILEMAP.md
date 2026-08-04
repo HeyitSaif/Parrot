@@ -42,17 +42,19 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Services/ExportService.swift` | 127 | Transcript/report export (Markdown, text) |
 | `Services/PermissionFlow.swift` | 75 | Screen Recording + microphone grant checks |
 | `Services/UpdateChecker.swift` | 103 | Daily GitHub release poll, feeds the update banner |
+| `Services/BugReport.swift` | 120 | Pre-filled GitHub issue: diagnostics, own-window screenshot, URL builder |
 
 ## Views
 
 | File | L | Purpose |
 |---|---|---|
-| `Views/ContentView.swift` | 173 | Root split view + empty state |
+| `Views/ContentView.swift` | 190 | Root split view + empty state + corner bug button |
 | `Views/SidebarView.swift` | 361 | Meeting list, rows, talk-ratio strip |
 | `Views/DashboardView.swift` | 329 | Landing stats + recent meetings |
 | `Views/LiveRecordingView.swift` | 532 | In-call screen: chat bubbles, mic level, side tabs |
 | `Views/CopilotPanelView.swift` | 729 | Live insight cards, pinned blockers, suggested replies |
 | `Views/MeetingDetailView.swift` | 707 | Post-call tabs: transcript, insights, report |
+| `Views/BugReportSheet.swift` | 150 | Bug/idea report form + the corner ladybug button |
 | `Views/ReportContentView.swift` | 267 | Report section cards, talk-ratio bar, prose blocks |
 | `Views/SentimentStripView.swift` | 60 | Sentiment gauge strip |
 | `Views/SettingsView.swift` | 673 | All settings sections, provider keys, KB docs |
