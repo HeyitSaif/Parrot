@@ -125,6 +125,12 @@ final class Meeting {
         return names.isEmpty ? (themName ?? label) : label
     }
 
+    /// Mean voice embedding per label, as written by diarization.
+    var speakerEmbeddings: [String: [Float]] {
+        guard let data = speakerEmbeddingsData else { return [:] }
+        return (try? JSONDecoder().decode([String: [Float]].self, from: data)) ?? [:]
+    }
+
     /// Per-speaker display names (see `speakerNamesData`).
     var speakerNames: [String: String] {
         get {

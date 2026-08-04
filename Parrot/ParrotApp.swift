@@ -90,7 +90,7 @@ struct ParrotApp: App {
     @AppStorage("appearance") private var appearance = Appearance.system
 
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self])
+        let schema = Schema([Meeting.self, TranscriptSegment.self, CallInsight.self, CallProfile.self, SpeakerProfile.self])
         let modelConfiguration = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: false
