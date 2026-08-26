@@ -445,10 +445,13 @@ final class TranscriptionEngine {
             var speechFrame: Int?
             for i in 0..<frames where frameEnergy(buffer, i) >= floor { speechFrame = i; break }
             guard let s = speechFrame else {
-                // All silence so far. Keep the partial tail frame while live (it
-                // may be the onset of a word); draining consumes everything so
-                // the loop can reach empty and exit.
-                return Cut(dropLeading: draining ? n : frames * frame, take: nil)
+                // All silence so far. Keep a 3 s lookback while live so a
+                // false-silence VAD can still be decoded (Macháček-style
+                // buffer); draining consumes everything so the loop can exit.
+                if draining { return Cut(dropLeading: n, take: nil) }
+                let fullFrames = frames * frame
+                let keep = min(ASRLoopPolicy.silenceLookbackSamples, fullFrames)
+                return Cut(dropLeading: fullFrames - keep, take: nil)
             }
             let drop = s * frame
 
@@ -473,6 +476,9 @@ final class TranscriptionEngine {
 
             // Speech with no boundary yet.
             let speechLen = n - drop
+            if let take = ASRLoopPolicy.energyValleyTake(in: buffer, drop: drop, speechLen: speechLen) {
+                return Cut(dropLeading: drop, take: take)
+            }
             if speechLen >= maxSegmentSamples { return Cut(dropLeading: drop, take: maxSegmentSamples) }
             if draining { return Cut(dropLeading: drop, take: speechLen) }
             return Cut(dropLeading: drop, take: nil)
@@ -586,6 +592,8 @@ final class TranscriptionEngine {
             // per session like the language setting.
             let previewBase: TimeInterval = 1.0
             var nextPreviewAt: [AudioSource: Date] = [:]
+            var lastPreviewText: [AudioSource: String] = [:]
+            var emittedPrefix: [AudioSource: String] = [:]
             var loopOptions = decodeOptions
             var lastDetectedLanguage = language
             var frozenLanguage = language
@@ -672,7 +680,8 @@ final class TranscriptionEngine {
                             let previewAudio = ASRLoopPolicy.previewSamples(pending, mode: previewMode)
                             let energy = previewAudio.isEmpty ? 0
                                 : previewAudio.reduce(into: Float(0)) { $0 += abs($1) } / Float(previewAudio.count)
-                            if energy > floor, let whisperKit = self.whisperKit {
+                            let speculative = ASRLoopPolicy.shouldSpeculativePreview(pendingCount: pending.count)
+                            if (energy > floor || speculative), let whisperKit = self.whisperKit {
                                 let decodeStarted = Date()
                                 let result = (try? await whisperKit.transcribe(
                                     audioArray: Self.normalizedForDecode(previewAudio),
@@ -700,6 +709,42 @@ final class TranscriptionEngine {
                                         self.currentText = display
                                         self.currentSpeaker = source
                                     }
+                                    let previous = lastPreviewText[source] ?? ""
+                                    if let confirmed = LocalAgreement.confirmedPrefix(previous, display),
+                                       let delta = LocalAgreement.delta(
+                                        emitted: emittedPrefix[source] ?? "", confirmed: confirmed
+                                       ),
+                                       !Self.isLikelyHallucination(delta, energy: energy) {
+                                        emittedPrefix[source] = confirmed
+                                        let (consumed, offset, pendingN): (Int, TimeInterval, Int) =
+                                            self.bufferLock.withLock {
+                                                (self.consumedSamples[source] ?? 0,
+                                                 self.localClockOffset[source] ?? 0,
+                                                 self.audioBuffers[source]?.count ?? 0)
+                                            }
+                                        let agreeStart = Double(consumed) / 16_000 + offset
+                                        let agreeEnd = LocalAgreement.estimatedEnd(
+                                            startTime: agreeStart,
+                                            pendingSamples: pendingN,
+                                            confirmed: confirmed,
+                                            hypothesis: display
+                                        )
+                                        self.statsLock.withLock {
+                                            self.decodeStats.recordAgreementEmit(meetingStart: meetingStart)
+                                        }
+                                        let detected = lastDetectedLanguage
+                                        await MainActor.run {
+                                            self.onSegment?(TranscriptionResult(
+                                                text: delta,
+                                                source: source,
+                                                startTime: agreeStart,
+                                                endTime: agreeEnd,
+                                                confidence: nil,
+                                                detectedLanguage: detected
+                                            ))
+                                        }
+                                    }
+                                    lastPreviewText[source] = display
                                 }
                             }
                         }
@@ -828,9 +873,22 @@ final class TranscriptionEngine {
                             // Prompt leak: the glossary prompt comes back as
                             // "transcription", alone or prefixed onto real
                             // speech — keep the speech, drop only the echo.
-                            guard let text = self.glossaryActive
+                            guard let committed = self.glossaryActive
                                 ? Self.strippingGlossaryEcho(cleaned) : cleaned else { continue }
+                            let already = emittedPrefix[source] ?? ""
+                            let text = LocalAgreement.remainder(emitted: already, full: committed)
+                            emittedPrefix[source] = nil
+                            lastPreviewText[source] = nil
+                            guard !text.isEmpty else { continue }
                             let detected = piece.language ?? lastDetectedLanguage
+                            if !self.glossaryActive, let tokenizer = self.whisperKit?.tokenizer {
+                                let prompt = ASRLoopPolicy.previousTextPrompt(
+                                    [already, text].filter { !$0.isEmpty }.joined(separator: " ")
+                                )
+                                let tokens = tokenizer.encode(text: " " + prompt)
+                                    .filter { $0 < tokenizer.specialTokens.specialTokenBegin }
+                                loopOptions = ASRLoopPolicy.applyingPreviousText(loopOptions, tokens: tokens)
+                            }
 
                             await MainActor.run {
                                 // Clear the interim line — the text lives in the

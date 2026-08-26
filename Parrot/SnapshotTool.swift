@@ -521,6 +521,7 @@ enum AsrBench {
             printInt("commit_decodes", a.stats.commitDecodes, b.stats.commitDecodes)
             printInt("language_detects", a.stats.languageDetects, b.stats.languageDetects)
             printInt("empty_text_commits", a.stats.emptyTextCommits, b.stats.emptyTextCommits)
+            printInt("agreement_emits", a.stats.agreementEmits, b.stats.agreementEmits)
             printInt("silence_dropped", a.stats.samplesDroppedAsSilence, b.stats.samplesDroppedAsSilence)
             printRow("peak_rss_mb", a.stats.peakRSSMB, b.stats.peakRSSMB, fmt: "%.0f")
             printInt("segments", a.stats.segments, b.stats.segments)

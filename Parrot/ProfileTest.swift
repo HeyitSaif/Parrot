@@ -503,12 +503,16 @@ enum ProfileTest {
         func speech(_ frames: Int) -> [Float] { Array(repeating: 0.02, count: frames * Seg.frame) }
         func silence(_ frames: Int) -> [Float] { Array(repeating: 0.0001, count: frames * Seg.frame) }
 
-        // Silence never decodes: live keeps only the partial tail frame, drain eats all.
+        // Silence never decodes: live keeps a 3 s lookback, drain eats all.
         let quiet = silence(8) + [0.0001, 0.0001]
-        check("seg silence live drops whole frames",
-              Seg.nextCut(in: quiet, draining: false) == .init(dropLeading: 8 * Seg.frame, take: nil))
+        check("seg silence live keeps the lookback",
+              Seg.nextCut(in: quiet, draining: false) == .init(dropLeading: 0, take: nil))
         check("seg silence draining drops everything",
               Seg.nextCut(in: quiet, draining: true) == .init(dropLeading: quiet.count, take: nil))
+        let longSilence = silence(40)
+        check("seg silence live drops only past lookback",
+              Seg.nextCut(in: longSilence, draining: false)
+                == .init(dropLeading: 40 * Seg.frame - ASRLoopPolicy.silenceLookbackSamples, take: nil))
 
         // Speech bounded by a pause cuts at the boundary, padded 100 ms into it.
         let utterance = silence(3) + speech(10) + silence(Seg.pauseFrames) + speech(2)
@@ -532,8 +536,12 @@ enum ProfileTest {
         check("seg continuous speech waits",
               Seg.nextCut(in: running, draining: false) == .init(dropLeading: 0, take: nil))
         let monologue = speech(Seg.maxSegmentSamples / Seg.frame + 10)
-        check("seg cap forces a cut",
-              Seg.nextCut(in: monologue, draining: false) == .init(dropLeading: 0, take: Seg.maxSegmentSamples))
+        let capCut = Seg.nextCut(in: monologue, draining: false)
+        check("seg cap forces a cut", capCut.dropLeading == 0 && capCut.take != nil)
+        check("seg soft cap is at most 4s", (capCut.take ?? 0) <= ASRLoopPolicy.softCapSamples)
+        let soft = speech(ASRLoopPolicy.softCapSamples / Seg.frame + 5)
+        let softCut = Seg.nextCut(in: soft, draining: false)
+        check("seg 4s speech is cut", softCut.take != nil && softCut.dropLeading == 0)
         check("seg draining takes the tail",
               Seg.nextCut(in: running, draining: true) == .init(dropLeading: 0, take: running.count))
 
@@ -549,14 +557,12 @@ enum ProfileTest {
         func roomNoise(_ frames: Int) -> [Float] { Array(repeating: 0.0002, count: frames * Seg.frame) }
         let quietUtterance = roomNoise(3) + quietSpeech(10) + roomNoise(Seg.pauseFrames) + quietSpeech(2)
         check("seg legacy floor is blind to quiet speech",  // documents the bug
-              Seg.nextCut(in: quietUtterance, draining: false)
-                == .init(dropLeading: quietUtterance.count, take: nil))
+              Seg.nextCut(in: quietUtterance, draining: false).take == nil)
         check("seg adaptive floor cuts quiet speech at its pause",
               Seg.nextCut(in: quietUtterance, draining: false, floor: 0.0008)
                 == .init(dropLeading: 3 * Seg.frame, take: (10 + Seg.padFrames) * Seg.frame))
-        check("seg adaptive floor still discards quiet-room silence",
-              Seg.nextCut(in: roomNoise(8), draining: false, floor: 0.0008)
-                == .init(dropLeading: 8 * Seg.frame, take: nil))
+        check("seg adaptive floor still does not decode quiet-room silence",
+              Seg.nextCut(in: roomNoise(8), draining: false, floor: 0.0008).take == nil)
     }
 
     // The quiet-mic pipeline (2026-08-04 live trace): buffer-derived noise
@@ -588,10 +594,9 @@ enum ProfileTest {
         // Flat true silence still reads as silence and is discarded.
         check("flat quiet-room window reads as silence",
               Seg.adaptiveFloor(for: roomNoise(8)) == Seg.silenceFloor)
-        check("quiet-room silence is still discarded",
+        check("quiet-room silence is still not decoded",
               Seg.nextCut(in: roomNoise(8), draining: false,
-                          floor: Seg.adaptiveFloor(for: roomNoise(8)))
-                == .init(dropLeading: 8 * Seg.frame, take: nil))
+                          floor: Seg.adaptiveFloor(for: roomNoise(8))).take == nil)
 
         // Normal gain: derived floor never exceeds the legacy fixed one, so
         // no environment behaves worse than shipped.
@@ -882,6 +887,43 @@ enum ProfileTest {
 
         check("p50 of five", DecodeStats.percentile([1, 2, 3, 4, 5], 0.5) == 3)
         check("empty percentile nil", DecodeStats.percentile([], 0.9) == nil)
+
+        check("speculative preview at 2s",
+              ASRLoopPolicy.shouldSpeculativePreview(pendingCount: ASRLoopPolicy.speculativePendingSamples))
+        check("no speculative preview under 2s",
+              !ASRLoopPolicy.shouldSpeculativePreview(pendingCount: ASRLoopPolicy.speculativePendingSamples - 1))
+
+        let valleyBuf = [Float](repeating: 0.02, count: ASRLoopPolicy.softCapSamples + TranscriptionEngine.Segmenter.frame * 2)
+        check("valley take on 4s speech",
+              ASRLoopPolicy.energyValleyTake(in: valleyBuf, drop: 0, speechLen: valleyBuf.count) != nil)
+        check("no valley take under soft cap",
+              ASRLoopPolicy.energyValleyTake(in: Array(valleyBuf.prefix(1000)), drop: 0, speechLen: 1000) == nil)
+
+        check("previous text keeps last 40 words",
+              ASRLoopPolicy.previousTextPrompt((1...50).map { "w\($0)" }.joined(separator: " "))
+                .split(separator: " ").count == 40)
+
+        var prompted = DecodingOptions(task: .transcribe, language: "en", detectLanguage: false)
+        prompted = ASRLoopPolicy.applyingPreviousText(prompted, tokens: [1, 2, 3])
+        check("previous text sets prompt tokens", prompted.promptTokens == [1, 2, 3])
+        check("previous text enables prefill", prompted.usePrefillPrompt == true)
+
+        check("agreement needs two shared words",
+              LocalAgreement.confirmedPrefix("hello there friend", "hello there everyone") == "hello there")
+        check("agreement ignores trailing punct",
+              LocalAgreement.confirmedPrefix("Hello, there.", "hello there folks") == "hello there")
+        check("agreement rejects one-word overlap",
+              LocalAgreement.confirmedPrefix("hello friend", "hello everyone") == nil)
+        check("agreement delta is the new tail",
+              LocalAgreement.delta(emitted: "hello there", confirmed: "hello there everyone") == "everyone")
+        check("agreement delta nil when caught up",
+              LocalAgreement.delta(emitted: "hello there", confirmed: "hello there") == nil)
+        check("remainder strips emitted prefix",
+              LocalAgreement.remainder(emitted: "hello there", full: "hello there everyone") == "everyone")
+        check("remainder keeps full on mismatch",
+              LocalAgreement.remainder(emitted: "nope", full: "hello there") == "hello there")
+        check("remainder empty when already emitted",
+              LocalAgreement.remainder(emitted: "hello there", full: "hello there").isEmpty)
     }
 
     static func testASRLanguageRouter() {

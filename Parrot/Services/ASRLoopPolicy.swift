@@ -156,6 +156,16 @@ enum ASRLoopPolicy {
     static let tailPreviewSamples = sampleRate * 3
     static let maxDecodeSamples = sampleRate * 15
     static let minDrainSamples = sampleRate / 5
+    /// Force a cut near this length (Wispr live p50 is 1.3–3.6 s). Hard cap stays 12 s.
+    static let softCapSamples = sampleRate * 4
+    /// Never discard the last N samples of "silence" — a false VAD still gets decoded.
+    static let silenceLookbackSamples = sampleRate * 3
+    /// Decode even when energy is under the floor once this much is buffered.
+    static let speculativePendingSamples = sampleRate * 2
+    /// Search the last 1 s of a soft-cap window for the quietest 100 ms frame.
+    static let valleySearchFrames = 10
+    /// Previous-transcript prompt (Whisper condition-on-previous-text), last N words.
+    static let previousTextWords = 40
 
     static func previewSamples(_ pending: [Float], mode: PreviewMode) -> [Float] {
         switch mode {
@@ -216,6 +226,120 @@ enum ASRLoopPolicy {
     /// Energy passed the segmenter but the decode returned empty — wasted ANE time.
     static func isWastedDecode(energyPassed: Bool, text: String) -> Bool {
         energyPassed && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func shouldSpeculativePreview(pendingCount: Int) -> Bool {
+        pendingCount >= speculativePendingSamples
+    }
+
+    /// Lowest-energy frame near the 4 s soft cap so a forced cut prefers a pause.
+    static func energyValleyTake(in buffer: [Float], drop: Int, speechLen: Int) -> Int? {
+        guard speechLen >= softCapSamples else { return nil }
+        let frame = TranscriptionEngine.Segmenter.frame
+        let pad = TranscriptionEngine.Segmenter.padFrames
+        let minSpeech = TranscriptionEngine.Segmenter.minSpeechSamples
+        let searchStart = max(drop, drop + softCapSamples - valleySearchFrames * frame)
+        let searchEnd = min(buffer.count, drop + softCapSamples)
+        guard searchEnd > searchStart else { return softCapSamples }
+        var bestFrame = max(searchStart / frame, 0)
+        var bestE = Float.greatestFiniteMagnitude
+        var i = searchStart / frame
+        let endI = searchEnd / frame
+        while i < endI {
+            let e = TranscriptionEngine.Segmenter.frameEnergy(buffer, i)
+            if e <= bestE {
+                bestE = e
+                bestFrame = i
+            }
+            i += 1
+        }
+        let take = (bestFrame + 1 + pad) * frame - drop
+        return min(max(take, minSpeech), softCapSamples)
+    }
+
+    static func previousTextPrompt(_ text: String, maxWords: Int = previousTextWords) -> String {
+        text.split(whereSeparator: \.isWhitespace).suffix(maxWords).joined(separator: " ")
+    }
+
+    static func applyingPreviousText(_ options: DecodingOptions, tokens: [Int]) -> DecodingOptions {
+        var next = options
+        guard !tokens.isEmpty else { return next }
+        next.promptTokens = tokens
+        next.usePrefillPrompt = true
+        return next
+    }
+}
+
+/// LocalAgreement-2 (Macháček et al., IJCNLP 2023; UFAL whisper_streaming).
+/// Two consecutive hypotheses that share a prefix → that prefix is stable enough to emit.
+enum LocalAgreement {
+    static let minConfirmedWords = 2
+
+    static func words(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isWhitespace)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    static func displayPrefix(from text: String, wordCount: Int) -> String {
+        guard wordCount > 0 else { return "" }
+        var count = 0
+        var idx = text.startIndex
+        var end = text.startIndex
+        while idx < text.endIndex, count < wordCount {
+            while idx < text.endIndex, text[idx].isWhitespace {
+                idx = text.index(after: idx)
+            }
+            while idx < text.endIndex, !text[idx].isWhitespace {
+                idx = text.index(after: idx)
+            }
+            end = idx
+            count += 1
+        }
+        return String(text[..<end]).trimmingCharacters(in: .whitespaces)
+    }
+
+    static func confirmedPrefix(_ previous: String, _ current: String, minWords: Int = minConfirmedWords) -> String? {
+        let a = words(previous)
+        let b = words(current)
+        var n = 0
+        while n < a.count, n < b.count, a[n] == b[n] { n += 1 }
+        guard n >= minWords else { return nil }
+        return displayPrefix(from: current, wordCount: n)
+    }
+
+    static func delta(emitted: String, confirmed: String) -> String? {
+        let e = words(emitted)
+        let c = words(confirmed)
+        guard c.count > e.count else { return nil }
+        guard zip(e, c).allSatisfy({ $0.0 == $0.1 }) else { return nil }
+        let skip = displayPrefix(from: confirmed, wordCount: e.count)
+        let rest = String(confirmed.dropFirst(skip.count))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return rest.isEmpty ? nil : rest
+    }
+
+    static func remainder(emitted: String, full: String) -> String {
+        let e = words(emitted)
+        let f = words(full)
+        let trimmed = full.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !e.isEmpty, f.count >= e.count,
+              zip(e, f).allSatisfy({ $0.0 == $0.1 }) else { return trimmed }
+        let skip = displayPrefix(from: full, wordCount: e.count)
+        return String(full.dropFirst(skip.count))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func estimatedEnd(
+        startTime: TimeInterval,
+        pendingSamples: Int,
+        confirmed: String,
+        hypothesis: String
+    ) -> TimeInterval {
+        let total = max(words(hypothesis).count, 1)
+        let done = min(words(confirmed).count, total)
+        return startTime + Double(pendingSamples) / Double(ASRLoopPolicy.sampleRate)
+            * Double(done) / Double(total)
     }
 }
 

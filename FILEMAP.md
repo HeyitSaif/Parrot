@@ -32,9 +32,9 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Services/AudioCaptureManager.swift` | 700 | System audio (tap on 15+, SCK on 14.x/rescue) + mic tap, buffer conversion |
 | `Services/SystemAudioTap.swift` | 250 | Core Audio process tap: audio-only capture, no Screen Recording (macOS 15+) |
 | `Services/EchoCanceller.swift` | 138 | Swift wrapper over vendored SpeexDSP AEC |
-| `Services/TranscriptionEngine.swift` | 947 | On-device WhisperKit; `AudioSource` routing; live preview decode; `DecodeStats` |
-| `Services/DecodeStats.swift` | 120 | Live-loop decode counters + RSS for harness footers |
-| `Services/ASRLoopPolicy.swift` | 180 | Preview/language-freeze/compute knobs; ASR backend router |
+| `Services/TranscriptionEngine.swift` | 1180 | On-device WhisperKit; live preview; LocalAgreement commits; `DecodeStats` |
+| `Services/DecodeStats.swift` | 145 | Live-loop decode counters + RSS for harness footers |
+| `Services/ASRLoopPolicy.swift` | 330 | Preview/language-freeze/compute knobs; LocalAgreement; ASR backend router |
 | `Services/MeetingRef.swift` | 90 | Wispr-style `live.ndjson` parse + meeting-bench compare |
 | `Services/TranslationEngine.swift` | 100 | Committed-line translation protocol + stub provider |
 | `Services/CloudTranscription.swift` | 355 | Opt-in Groq (batch) and Deepgram (streaming) backends + WAV encode |

@@ -10,6 +10,7 @@ struct DecodeStats: Sendable {
     var glossaryRetries = 0
     var languageDetects = 0
     var emptyTextCommits = 0
+    var agreementEmits = 0
     var samplesDroppedAsSilence = 0
     var audioSecondsFed = 0.0
     var decodeMs: [Double] = []
@@ -40,6 +41,15 @@ struct DecodeStats: Sendable {
         }
     }
 
+    /// LocalAgreement emit — no extra decode, but it is the first committed text.
+    mutating func recordAgreementEmit(meetingStart: Date) {
+        agreementEmits += 1
+        if firstCommitMs == nil {
+            firstCommitMs = Date().timeIntervalSince(meetingStart) * 1000
+        }
+        peakRSSMB = max(peakRSSMB, Self.currentRSSMB())
+    }
+
     func snapshot(segmentCount: Int) -> Snapshot {
         let wall = Date().timeIntervalSince(startedAt)
         let rtfx = wall > 0 ? audioSecondsFed / wall : 0
@@ -55,6 +65,7 @@ struct DecodeStats: Sendable {
             glossaryRetries: glossaryRetries,
             languageDetects: languageDetects,
             emptyTextCommits: emptyTextCommits,
+            agreementEmits: agreementEmits,
             samplesDroppedAsSilence: samplesDroppedAsSilence,
             decodeP50: Self.percentile(decodeMs, 0.50),
             decodeP90: Self.percentile(decodeMs, 0.90),
@@ -75,6 +86,7 @@ struct DecodeStats: Sendable {
         var glossaryRetries: Int
         var languageDetects: Int
         var emptyTextCommits: Int
+        var agreementEmits: Int
         var samplesDroppedAsSilence: Int
         var decodeP50: Double?
         var decodeP90: Double?
@@ -101,6 +113,7 @@ struct DecodeStats: Sendable {
                 "glossary_retries   \(glossaryRetries)",
                 "language_detects   \(languageDetects)",
                 "empty_text_commits \(emptyTextCommits)",
+                "agreement_emits    \(agreementEmits)",
                 "silence_dropped    \(samplesDroppedAsSilence)",
                 "decode_ms p50/p90  \(dec(decodeP50, "%.0f")) / \(dec(decodeP90, "%.0f"))",
                 String(format: "peak_rss_mb        %.0f", peakRSSMB),
