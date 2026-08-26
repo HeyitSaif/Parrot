@@ -9,7 +9,7 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 |---|---|---|
 | `Parrot/ParrotApp.swift` | 112 | `@main`; parses CLI harness flags before the SwiftUI `App` starts |
 | `Parrot/ProfileTest.swift` | 363 | `--profile-test`: headless logic harness, ~60 assertions |
-| `Parrot/SnapshotTool.swift` | 522 | Offscreen PNG renderers + `--liveloop-test` metrics, `--asr-bench`, `--translate-test` |
+| `Parrot/SnapshotTool.swift` | 522 | Offscreen PNG renderers + `--liveloop-test` / `--asr-bench` / `--meeting-bench` / `--translate-test` |
 
 ## Models (SwiftData `@Model` + Codable values)
 
@@ -35,6 +35,7 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Services/TranscriptionEngine.swift` | 947 | On-device WhisperKit; `AudioSource` routing; live preview decode; `DecodeStats` |
 | `Services/DecodeStats.swift` | 120 | Live-loop decode counters + RSS for harness footers |
 | `Services/ASRLoopPolicy.swift` | 180 | Preview/language-freeze/compute knobs; ASR backend router |
+| `Services/MeetingRef.swift` | 90 | Wispr-style `live.ndjson` parse + meeting-bench compare |
 | `Services/TranslationEngine.swift` | 100 | Committed-line translation protocol + stub provider |
 | `Services/CloudTranscription.swift` | 355 | Opt-in Groq (batch) and Deepgram (streaming) backends + WAV encode |
 | `Services/DiarizationEngine.swift` | 105 | FluidAudio offline pyannote diarization (CoreML): labels + per-speaker embeddings |

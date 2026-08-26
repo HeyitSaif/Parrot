@@ -32,6 +32,11 @@ struct ParrotMain {
             AsrBench.run(arguments: Array(args[(i + 1)...]))
             return
         }
+        if args.contains("--meeting-bench") {
+            let i = args.firstIndex(of: "--meeting-bench")!
+            MeetingBench.run(arguments: Array(args[(i + 1)...]))
+            return
+        }
         if args.contains("--translate-test") {
             TranslateTest.run()
             return

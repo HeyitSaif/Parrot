@@ -541,6 +541,107 @@ enum AsrBench {
     }
 }
 
+/// Compare our live loop to a Wispr-style `live.ndjson` on structure only
+/// (counts, first-commit, p50 duration, mic/system). Text is never printed.
+///
+///   Parrot --meeting-bench /path/audio.aiff --ref /path/live.ndjson [model]
+///   Parrot --meeting-bench --ref /path/live.ndjson --window-s 180 --ours-segments 5 --ours-first-ms 115865
+enum MeetingBench {
+    static func run(arguments: [String]) {
+        var audio: String?
+        var refPath: String?
+        var model = "base"
+        var windowS: Int?
+        var oursSegments: Int?
+        var oursFirstMs: Double?
+        var i = 0
+        while i < arguments.count {
+            let arg = arguments[i]
+            if arg == "--ref", i + 1 < arguments.count {
+                refPath = arguments[i + 1]; i += 2; continue
+            }
+            if arg == "--window-s", i + 1 < arguments.count {
+                windowS = Int(arguments[i + 1]); i += 2; continue
+            }
+            if arg == "--ours-segments", i + 1 < arguments.count {
+                oursSegments = Int(arguments[i + 1]); i += 2; continue
+            }
+            if arg == "--ours-first-ms", i + 1 < arguments.count {
+                oursFirstMs = Double(arguments[i + 1]); i += 2; continue
+            }
+            if arg == "--model", i + 1 < arguments.count {
+                model = arguments[i + 1]; i += 2; continue
+            }
+            if !arg.hasPrefix("--"), audio == nil {
+                audio = arg
+            } else if !arg.hasPrefix("--") {
+                model = arg
+            }
+            i += 1
+        }
+        guard let refPath else {
+            print("meeting-bench: usage: --meeting-bench [audio] --ref live.ndjson [--window-s N] [--ours-segments N --ours-first-ms N] [model]")
+            exit(1)
+        }
+
+        if audio == nil, let oursSegments, oursFirstMs != nil {
+            report(refPath: refPath, windowS: windowS ?? 0, oursSegments: oursSegments, oursFirstMs: oursFirstMs, oursP50: nil)
+            return
+        }
+        guard let audio else {
+            print("meeting-bench: need <audio> or --ours-segments + --ours-first-ms")
+            exit(1)
+        }
+        Task { @MainActor in
+            do {
+                let result = try await LiveLoopTest.execute(
+                    audioPath: audio,
+                    model: model,
+                    config: LoopSessionConfig.fromEnvironmentAndDefaults()
+                )
+                let durs = result.segments.map { ($0.end - $0.start) * 1000 }.sorted()
+                let p50 = durs.isEmpty ? nil : durs[durs.count / 2]
+                let window = windowS ?? Int(result.stats.audioSeconds.rounded(.up))
+                report(
+                    refPath: refPath,
+                    windowS: window,
+                    oursSegments: result.segments.count,
+                    oursFirstMs: result.stats.firstCommitMs,
+                    oursP50: p50
+                )
+            } catch {
+                print("meeting-bench FAILED: \(error.localizedDescription)")
+                exit(1)
+            }
+        }
+        dispatchMain()
+    }
+
+    private static func report(
+        refPath: String,
+        windowS: Int,
+        oursSegments: Int,
+        oursFirstMs: Double?,
+        oursP50: Double?
+    ) {
+        guard let raw = try? String(contentsOfFile: refPath, encoding: .utf8) else {
+            print("meeting-bench: cannot read \(refPath)")
+            exit(1)
+        }
+        let windowMs = windowS > 0 ? windowS * 1000 : Int.max
+        let ref = MeetingRefStats.of(MeetingLiveRef.inWindow(MeetingLiveRef.parseNDJSON(raw), windowMs: windowMs))
+        for line in MeetingCompare.lines(
+            ref: ref,
+            oursSegments: oursSegments,
+            oursFirstMs: oursFirstMs,
+            oursP50DurMs: oursP50
+        ) {
+            print(line)
+        }
+        exit(0)
+    }
+}
+
 /// Offline translation policy harness. `TRANSLATE_LIVE=1` is reserved for a
 /// future OS-pack run and is not part of `make test`.
 enum TranslateTest {

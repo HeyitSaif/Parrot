@@ -44,6 +44,7 @@ enum ProfileTest {
         testASRLoopPolicy()
         testASRLanguageRouter()
         testTranslationPolicy()
+        testMeetingRef()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -913,5 +914,29 @@ enum ProfileTest {
         check("maps client a", mapped["a"] == "Hello")
         check("maps client c", mapped["c"] == "Bye")
         check("unknown id missing", mapped["b"] == nil)
+    }
+
+    static func testMeetingRef() {
+        let raw = """
+        {"meta":{"schema":1}}
+        {"text":"a","startRecordingMs":4448,"endRecordingMs":5177,"speaker":{"source":"system"}}
+        {"text":"b","startRecordingMs":20000,"endRecordingMs":24000,"speaker":{"source":"mic"}}
+        {"text":"c","startRecordingMs":190000,"endRecordingMs":191000,"speaker":{"source":"system"}}
+        """
+        let all = MeetingLiveRef.parseNDJSON(raw)
+        check("skips meta", all.count == 3)
+        check("first start", all[0].startMs == 4448)
+        check("system counted", all[0].source == "system")
+        let win = MeetingLiveRef.inWindow(all, windowMs: 180_000)
+        check("window drops late line", win.count == 2)
+        let stats = MeetingRefStats.of(win)
+        check("window mic/sys", stats.mic == 1 && stats.system == 1)
+        check("window first", stats.firstMs == 4448)
+        check("p50 dur is 729 or 4000", stats.p50DurMs == 729 || stats.p50DurMs == 4000)
+        let report = MeetingCompare.lines(
+            ref: stats, oursSegments: 5, oursFirstMs: 115_865, oursP50DurMs: 2000
+        )
+        check("report names the bench", report.contains(where: { $0.hasPrefix("=== meeting-bench") }))
+        check("lag is ours minus ref", report.contains(where: { $0.contains("111417") }))
     }
 }
