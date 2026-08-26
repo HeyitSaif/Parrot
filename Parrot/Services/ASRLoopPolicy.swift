@@ -49,6 +49,9 @@ struct LoopSessionConfig: Sendable, Equatable {
     var compute: ComputePlacement
     var streams: Int
     var backend: OnDeviceASRBackend
+    /// When true, the first detected language is locked for the rest of the
+    /// session. Auto (`language == nil`) defaults to false so mixed-language
+    /// calls can re-detect on every commit. Opt in with `freeze=true` / `LIVELOOP_FREEZE`.
     var freezeLanguage: Bool
     var englishOnlyWeights: Bool
 
@@ -91,6 +94,9 @@ struct LoopSessionConfig: Sendable, Equatable {
                 ?? OnDeviceASRBackend.whisper.rawValue
         ) ?? .whisper
 
+        let freezeRaw = env["LIVELOOP_FREEZE"]
+        let freezeLanguage = freezeRaw == "1" || freezeRaw == "true"
+
         return LoopSessionConfig(
             language: language,
             preview: preview,
@@ -98,7 +104,7 @@ struct LoopSessionConfig: Sendable, Equatable {
             compute: compute,
             streams: max(1, min(streams, 2)),
             backend: backend,
-            freezeLanguage: language == nil,
+            freezeLanguage: freezeLanguage,
             englishOnlyWeights: language == "en"
         )
     }
@@ -116,7 +122,6 @@ struct LoopSessionConfig: Sendable, Equatable {
                 if let mode = PreviewMode(rawValue: value) { cfg.preview = mode }
             case "language":
                 cfg.language = (value == "auto" || value.isEmpty) ? nil : value
-                cfg.freezeLanguage = cfg.language == nil
                 cfg.englishOnlyWeights = cfg.language == "en"
             case "fallback":
                 if let n = Int(value) { cfg.fallbackCount = n }
@@ -199,9 +204,12 @@ enum ASRLoopPolicy {
         return next
     }
 
-    static func previewOptions(_ options: DecodingOptions) -> DecodingOptions {
+    static func previewOptions(_ options: DecodingOptions, hintLanguage: String? = nil) -> DecodingOptions {
         var next = options
         next.detectLanguage = false
+        if let hintLanguage, !hintLanguage.isEmpty {
+            next.language = hintLanguage
+        }
         return next
     }
 

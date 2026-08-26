@@ -370,7 +370,7 @@ struct SettingsView: View {
                     Text("Korean").tag("ko")
                     Text("Hindi").tag("hi")
                 }
-                Hint("Applies to the next recording. Pick a language only if auto-detect keeps guessing wrong.")
+                Hint("Applies to the next recording. Auto-detect re-checks each committed line so mixed-language calls can switch. Pick a language only to lock the session.")
             }
 
             Section("Live translation") {

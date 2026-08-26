@@ -858,10 +858,19 @@ enum ProfileTest {
         check("freeze clears detectLanguage", options.detectLanguage == false)
         check("preview options never detect",
               ASRLoopPolicy.previewOptions(DecodingOptions(task: .transcribe, language: nil, detectLanguage: true)).detectLanguage == false)
+        let hinted = ASRLoopPolicy.previewOptions(
+            DecodingOptions(task: .transcribe, language: nil, detectLanguage: true),
+            hintLanguage: "de"
+        )
+        check("preview hint sets language", hinted.language == "de")
+        check("preview hint still skips detect", hinted.detectLanguage == false)
 
         let spec = LoopSessionConfig.parseBenchSpec("preview=on,language=auto,fallback=3,compute=gpu,backend=whisper,streams=2")
         check("bench spec preview", spec.preview == .on)
         check("bench spec auto language", spec.language == nil)
+        check("auto does not freeze language", spec.freezeLanguage == false)
+        check("explicit freeze stays on",
+              LoopSessionConfig.parseBenchSpec("language=auto,freeze=true").freezeLanguage == true)
         check("bench spec fallback", spec.fallbackCount == 3)
         check("bench spec compute", spec.compute == .gpu)
         check("bench spec streams", spec.streams == 2)

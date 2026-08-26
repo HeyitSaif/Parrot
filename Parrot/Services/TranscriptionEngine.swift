@@ -587,6 +587,7 @@ final class TranscriptionEngine {
             let previewBase: TimeInterval = 1.0
             var nextPreviewAt: [AudioSource: Date] = [:]
             var loopOptions = decodeOptions
+            var lastDetectedLanguage = language
             var frozenLanguage = language
             var commitInFlight = false
             let previewMode = session.preview
@@ -675,7 +676,8 @@ final class TranscriptionEngine {
                                 let decodeStarted = Date()
                                 let result = (try? await whisperKit.transcribe(
                                     audioArray: Self.normalizedForDecode(previewAudio),
-                                    decodeOptions: ASRLoopPolicy.previewOptions(loopOptions))) ?? []
+                                    decodeOptions: ASRLoopPolicy.previewOptions(
+                                        loopOptions, hintLanguage: lastDetectedLanguage))) ?? []
                                 let ms = Date().timeIntervalSince(decodeStarted) * 1000
                                 self.statsLock.withLock {
                                     self.decodeStats.record(.preview, ms: ms, meetingStart: meetingStart)
@@ -747,10 +749,12 @@ final class TranscriptionEngine {
                                 self.decodeStats.record(kind, ms: ms, meetingStart: meetingStart)
                                 if options.detectLanguage { self.decodeStats.languageDetects += 1 }
                             }
-                            if freezeLanguage, frozenLanguage == nil,
-                               let lang = result.first?.language, !lang.isEmpty {
-                                frozenLanguage = lang
-                                loopOptions = ASRLoopPolicy.applyingLanguageFreeze(loopOptions, frozen: lang)
+                            if let lang = result.first?.language, !lang.isEmpty {
+                                lastDetectedLanguage = lang
+                                if freezeLanguage, frozenLanguage == nil {
+                                    frozenLanguage = lang
+                                    loopOptions = ASRLoopPolicy.applyingLanguageFreeze(loopOptions, frozen: lang)
+                                }
                             }
                             return result.map { transcription in
                                 (transcription.text,
@@ -826,7 +830,7 @@ final class TranscriptionEngine {
                             // speech — keep the speech, drop only the echo.
                             guard let text = self.glossaryActive
                                 ? Self.strippingGlossaryEcho(cleaned) : cleaned else { continue }
-                            let detected = piece.language ?? frozenLanguage
+                            let detected = piece.language ?? lastDetectedLanguage
 
                             await MainActor.run {
                                 // Clear the interim line — the text lives in the
