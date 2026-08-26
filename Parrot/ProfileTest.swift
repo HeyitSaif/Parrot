@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import SwiftData
+import WhisperKit
 
 /// Offscreen logic harness. Run: `.build/debug/Parrot --profile-test`
 /// Prints PASS/FAIL per check and exits non-zero on any failure.
@@ -40,6 +41,9 @@ enum ProfileTest {
         testDiarizedLabel()
         testSpeakerNames()
         testVoiceProfiles()
+        testASRLoopPolicy()
+        testASRLanguageRouter()
+        testTranslationPolicy()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
     }
@@ -814,5 +818,91 @@ enum ProfileTest {
               PermissionFlow.nextSystemAudioStep(proven: false, screenGranted: false, askedBefore: true, settingsShownBefore: false) == .openSettings)
         check("sysaudio: after prompt + Settings it stops gatekeeping",
               PermissionFlow.nextSystemAudioStep(proven: false, screenGranted: false, askedBefore: true, settingsShownBefore: true) == .granted)
+    }
+
+    static func testASRLoopPolicy() {
+        let long = [Float](repeating: 0.1, count: ASRLoopPolicy.tailPreviewSamples + 8000)
+        check("preview off is empty", ASRLoopPolicy.previewSamples(long, mode: .off).isEmpty)
+        check("preview tail capped",
+              ASRLoopPolicy.previewSamples(long, mode: .tail).count == ASRLoopPolicy.tailPreviewSamples)
+        let huge = [Float](repeating: 0.1, count: ASRLoopPolicy.maxDecodeSamples + 1000)
+        check("decode window cap",
+              ASRLoopPolicy.applyDecodeWindowCap(huge).count == ASRLoopPolicy.maxDecodeSamples)
+        check("preview mutex skips when commit in flight",
+              ASRLoopPolicy.shouldPreview(
+                mode: .tail, commitInFlight: true,
+                pendingCount: TranscriptionEngine.Segmenter.minSpeechSamples + 1,
+                now: Date(), nextAt: .distantPast) == false)
+        check("preview waits until nextAt",
+              ASRLoopPolicy.shouldPreview(
+                mode: .on, commitInFlight: false,
+                pendingCount: TranscriptionEngine.Segmenter.minSpeechSamples + 1,
+                now: Date(), nextAt: Date().addingTimeInterval(10)) == false)
+        check("preview yields to other-stream commit",
+              ASRLoopPolicy.shouldPreview(
+                mode: .tail, commitInFlight: false,
+                pendingCount: TranscriptionEngine.Segmenter.minSpeechSamples + 1,
+                now: Date(), nextAt: .distantPast, otherCommitReady: true) == false)
+        check("wasted decode empty+energy",
+              ASRLoopPolicy.isWastedDecode(energyPassed: true, text: "   "))
+        check("real text is not wasted",
+              !ASRLoopPolicy.isWastedDecode(energyPassed: true, text: "hello"))
+        check("drop short drain tail",
+              ASRLoopPolicy.shouldDropDrainTail(100, draining: true))
+        check("keep live short speech",
+              !ASRLoopPolicy.shouldDropDrainTail(100, draining: false))
+
+        var options = DecodingOptions(task: .transcribe, language: nil, detectLanguage: true)
+        options = ASRLoopPolicy.applyingLanguageFreeze(options, frozen: "tr")
+        check("freeze sets language", options.language == "tr")
+        check("freeze clears detectLanguage", options.detectLanguage == false)
+        check("preview options never detect",
+              ASRLoopPolicy.previewOptions(DecodingOptions(task: .transcribe, language: nil, detectLanguage: true)).detectLanguage == false)
+
+        let spec = LoopSessionConfig.parseBenchSpec("preview=on,language=auto,fallback=3,compute=gpu,backend=whisper,streams=2")
+        check("bench spec preview", spec.preview == .on)
+        check("bench spec auto language", spec.language == nil)
+        check("bench spec fallback", spec.fallbackCount == 3)
+        check("bench spec compute", spec.compute == .gpu)
+        check("bench spec streams", spec.streams == 2)
+        check("english weights map base",
+              LoopSessionConfig.resolvedWhisperModel("base", language: "en") == "base.en")
+        check("english weights leave turbo",
+              LoopSessionConfig.resolvedWhisperModel("large-v3-turbo", language: "en") == "large-v3-turbo")
+
+        check("p50 of five", DecodeStats.percentile([1, 2, 3, 4, 5], 0.5) == 3)
+        check("empty percentile nil", DecodeStats.percentile([], 0.9) == nil)
+    }
+
+    static func testASRLanguageRouter() {
+        check("en routes parakeet", ASRLanguageRouter.backend(for: "en") == .parakeet)
+        check("tr routes sensevoice", ASRLanguageRouter.backend(for: "tr") == .sensevoice)
+        check("unknown routes whisper", ASRLanguageRouter.backend(for: "xx") == .whisper)
+        check("auto/nil routes whisper", ASRLanguageRouter.backend(for: nil) == .whisper)
+        check("explicit parakeet kept",
+              ASRLanguageRouter.resolved(requested: .parakeet, language: "xx") == .parakeet)
+        check("streaming ASR gated until bench win", FluidStreamingASR.isAvailable == false)
+        check("fallback notice for parakeet",
+              FluidStreamingASR.fallbackNotice(for: .parakeet) != nil)
+        check("no notice for whisper",
+              FluidStreamingASR.fallbackNotice(for: .whisper) == nil)
+        check("CTC vocab boost gated", FluidVocabBoost.isAvailable == false)
+    }
+
+    static func testTranslationPolicy() {
+        check("same language skip",
+              !TranslationPolicy.shouldTranslate(source: "en", target: "en", text: "hello there"))
+        check("short skip",
+              !TranslationPolicy.shouldTranslate(source: "de", target: "en", text: "a"))
+        check("pair allowed",
+              TranslationPolicy.shouldTranslate(source: "de", target: "en", text: "Guten Tag"))
+        let responses = [
+            TranslationResponse(clientIdentifier: "a", text: "Hello"),
+            TranslationResponse(clientIdentifier: "c", text: "Bye"),
+        ]
+        let mapped = TranslationPolicy.mapBatch([], responses: responses)
+        check("maps client a", mapped["a"] == "Hello")
+        check("maps client c", mapped["c"] == "Bye")
+        check("unknown id missing", mapped["b"] == nil)
     }
 }
