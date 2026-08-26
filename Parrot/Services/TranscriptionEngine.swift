@@ -445,13 +445,21 @@ final class TranscriptionEngine {
             var speechFrame: Int?
             for i in 0..<frames where frameEnergy(buffer, i) >= floor { speechFrame = i; break }
             guard let s = speechFrame else {
-                // All silence so far. Keep a 3 s lookback while live so a
-                // false-silence VAD can still be decoded (Macháček-style
-                // buffer); draining consumes everything so the loop can exit.
-                if draining { return Cut(dropLeading: n, take: nil) }
-                let fullFrames = frames * frame
-                let keep = min(ASRLoopPolicy.silenceLookbackSamples, fullFrames)
-                return Cut(dropLeading: fullFrames - keep, take: nil)
+                // Energy VAD called this silence. Walk it in 2–3 s decode
+                // windows instead of deleting it — quiet meeting mixes were
+                // sitting until 110 s for that reason. True silence comes
+                // back empty and is dropped after the decode.
+                if draining {
+                    if let take = ASRLoopPolicy.silenceWindowTake(sampleCount: frames * frame) {
+                        return Cut(dropLeading: 0, take: take)
+                    }
+                    if n >= minSpeechSamples { return Cut(dropLeading: 0, take: n) }
+                    return Cut(dropLeading: n, take: nil)
+                }
+                if let take = ASRLoopPolicy.silenceWindowTake(sampleCount: frames * frame) {
+                    return Cut(dropLeading: 0, take: take)
+                }
+                return Cut(dropLeading: 0, take: nil)
             }
             let drop = s * frame
 
@@ -732,6 +740,19 @@ final class TranscriptionEngine {
                                         self.statsLock.withLock {
                                             self.decodeStats.recordAgreementEmit(meetingStart: meetingStart)
                                         }
+                                        let consume = LocalAgreement.samplesForPrefix(
+                                            pendingSamples: pendingN,
+                                            confirmed: confirmed,
+                                            hypothesis: display
+                                        )
+                                        if consume > 0 {
+                                            self.bufferLock.withLock {
+                                                let buffered = self.audioBuffers[source] ?? []
+                                                let n = min(consume, buffered.count)
+                                                self.audioBuffers[source] = Array(buffered[n...])
+                                                self.consumedSamples[source] = (self.consumedSamples[source] ?? 0) + n
+                                            }
+                                        }
                                         let detected = lastDetectedLanguage
                                         await MainActor.run {
                                             self.onSegment?(TranscriptionResult(
@@ -767,7 +788,10 @@ final class TranscriptionEngine {
                     }
 
                     let energy = chunk.reduce(into: Float(0)) { $0 += abs($1) } / Float(chunk.count)
-                    guard energy > floor else { continue }
+                    // Live soft-cap takes already passed the segmenter. Skipping
+                    // them here ate quiet meeting mixes (clip 01: 180 s in, 3 lines
+                    // out). Only drain tails still use the energy backstop.
+                    if draining, energy <= floor { continue }
 
                     // Boost quiet-but-real chunks to a healthy level before
                     // every decode. `energy` above stays raw on purpose: the
@@ -917,8 +941,14 @@ final class TranscriptionEngine {
                 // progressively behind — the regression that left the back half of a
                 // call untranscribed.
                 if !didWork {
-                    if draining { break }  // buffers empty → fully drained, exit
-                    try? await Task.sleep(for: .milliseconds(250))
+                    let backlog = self.bufferLock.withLock {
+                        AudioSource.allCases.contains { (self.audioBuffers[$0]?.count ?? 0) > 0 }
+                    }
+                    if draining {
+                        if !backlog { break }
+                        continue
+                    }
+                    try? await Task.sleep(for: .milliseconds(backlog ? 20 : 250))
                 }
             }
         }

@@ -232,6 +232,12 @@ enum ASRLoopPolicy {
         pendingCount >= speculativePendingSamples
     }
 
+    /// First 2–3 s of a "silence" buffer — decode, don't delete.
+    static func silenceWindowTake(sampleCount: Int) -> Int? {
+        guard sampleCount >= speculativePendingSamples else { return nil }
+        return min(silenceLookbackSamples, sampleCount)
+    }
+
     /// Lowest-energy frame near the 4 s soft cap so a forced cut prefers a pause.
     static func energyValleyTake(in buffer: [Float], drop: Int, speechLen: Int) -> Int? {
         guard speechLen >= softCapSamples else { return nil }
@@ -340,6 +346,14 @@ enum LocalAgreement {
         let done = min(words(confirmed).count, total)
         return startTime + Double(pendingSamples) / Double(ASRLoopPolicy.sampleRate)
             * Double(done) / Double(total)
+    }
+
+    static func samplesForPrefix(pendingSamples: Int, confirmed: String, hypothesis: String) -> Int {
+        let total = max(words(hypothesis).count, 1)
+        let done = min(words(confirmed).count, total)
+        let n = pendingSamples * done / total
+        let keep = ASRLoopPolicy.sampleRate / 5
+        return min(n, max(0, pendingSamples - keep))
     }
 }
 

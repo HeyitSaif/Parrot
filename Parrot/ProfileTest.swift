@@ -503,16 +503,23 @@ enum ProfileTest {
         func speech(_ frames: Int) -> [Float] { Array(repeating: 0.02, count: frames * Seg.frame) }
         func silence(_ frames: Int) -> [Float] { Array(repeating: 0.0001, count: frames * Seg.frame) }
 
-        // Silence never decodes: live keeps a 3 s lookback, drain eats all.
+        // Short silence stays buffered. Once we have 2 s, take a 3 s window
+        // from the front so quiet speech is decoded instead of deleted.
         let quiet = silence(8) + [0.0001, 0.0001]
-        check("seg silence live keeps the lookback",
+        check("seg short silence live waits",
               Seg.nextCut(in: quiet, draining: false) == .init(dropLeading: 0, take: nil))
-        check("seg silence draining drops everything",
-              Seg.nextCut(in: quiet, draining: true) == .init(dropLeading: quiet.count, take: nil))
+        let tiny = silence(2)
+        check("seg tiny silence draining drops",
+              Seg.nextCut(in: tiny, draining: true) == .init(dropLeading: tiny.count, take: nil))
+        check("seg 0.8s silence draining is decoded",
+              Seg.nextCut(in: quiet, draining: true) == .init(dropLeading: 0, take: quiet.count))
         let longSilence = silence(40)
-        check("seg silence live drops only past lookback",
+        check("seg 4s silence is a decode window",
               Seg.nextCut(in: longSilence, draining: false)
-                == .init(dropLeading: 40 * Seg.frame - ASRLoopPolicy.silenceLookbackSamples, take: nil))
+                == .init(dropLeading: 0, take: ASRLoopPolicy.silenceLookbackSamples))
+        check("seg long silence draining walks a window",
+              Seg.nextCut(in: longSilence, draining: true)
+                == .init(dropLeading: 0, take: ASRLoopPolicy.silenceLookbackSamples))
 
         // Speech bounded by a pause cuts at the boundary, padded 100 ms into it.
         let utterance = silence(3) + speech(10) + silence(Seg.pauseFrames) + speech(2)
@@ -556,8 +563,9 @@ enum ProfileTest {
         func quietSpeech(_ frames: Int) -> [Float] { Array(repeating: 0.0014, count: frames * Seg.frame) }
         func roomNoise(_ frames: Int) -> [Float] { Array(repeating: 0.0002, count: frames * Seg.frame) }
         let quietUtterance = roomNoise(3) + quietSpeech(10) + roomNoise(Seg.pauseFrames) + quietSpeech(2)
-        check("seg legacy floor is blind to quiet speech",  // documents the bug
-              Seg.nextCut(in: quietUtterance, draining: false).take == nil)
+        check("seg legacy floor still misses quiet speech frames",
+              Seg.nextCut(in: quietUtterance, draining: false, floor: Seg.silenceFloor).take
+                == ASRLoopPolicy.silenceWindowTake(sampleCount: (quietUtterance.count / Seg.frame) * Seg.frame))
         check("seg adaptive floor cuts quiet speech at its pause",
               Seg.nextCut(in: quietUtterance, draining: false, floor: 0.0008)
                 == .init(dropLeading: 3 * Seg.frame, take: (10 + Seg.padFrames) * Seg.frame))
@@ -892,6 +900,17 @@ enum ProfileTest {
               ASRLoopPolicy.shouldSpeculativePreview(pendingCount: ASRLoopPolicy.speculativePendingSamples))
         check("no speculative preview under 2s",
               !ASRLoopPolicy.shouldSpeculativePreview(pendingCount: ASRLoopPolicy.speculativePendingSamples - 1))
+        check("silence window waits under 2s",
+              ASRLoopPolicy.silenceWindowTake(sampleCount: ASRLoopPolicy.speculativePendingSamples - 1) == nil)
+        check("silence window takes 3s at 4s",
+              ASRLoopPolicy.silenceWindowTake(sampleCount: ASRLoopPolicy.sampleRate * 4)
+                == ASRLoopPolicy.silenceLookbackSamples)
+        check("agreement consume leaves a tail",
+              LocalAgreement.samplesForPrefix(
+                pendingSamples: 16_000, confirmed: "hello there", hypothesis: "hello there everyone"
+              ) < 16_000)
+        check("agreement consume is zero on empty pending",
+              LocalAgreement.samplesForPrefix(pendingSamples: 0, confirmed: "a b", hypothesis: "a b c") == 0)
 
         let valleyBuf = [Float](repeating: 0.02, count: ASRLoopPolicy.softCapSamples + TranscriptionEngine.Segmenter.frame * 2)
         check("valley take on 4s speech",
