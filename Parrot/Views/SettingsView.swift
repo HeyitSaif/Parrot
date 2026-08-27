@@ -58,15 +58,21 @@ struct SettingsView: View {
     @AppStorage("copilotOllamaModel") private var copilotOllamaModel = "llama3.2:3b"
     @AppStorage("copilotCustomBaseURL") private var copilotCustomBaseURL = ""
     @AppStorage("copilotCustomModel") private var copilotCustomModel = ""
-    /// True after picking "Custom…" in the Ollama model dropdown, so the free
-    /// text field stays visible even while the typed name matches nothing.
-    @State private var ollamaCustomModelEditing = false
+    @AppStorage(FeatureProcessing.translationOllamaModelKey) private var translationOllamaModel = FeatureProcessing.translationOllamaDefault
     @AppStorage("transcriptionLanguage") private var transcriptionLanguage = "auto"
     @AppStorage("customVocabulary") private var customVocabulary = ""
     @AppStorage("echoCancellationEnabled") private var echoCancellation = true
     @AppStorage(TranscriptionBackend.defaultsKey) private var transcriptionBackend = TranscriptionBackend.local.rawValue
     @AppStorage("polishAfterCall") private var polishAfterCall = false
     @AppStorage("livePreview") private var livePreview = true
+    @AppStorage(FeatureProcessing.callModeKey) private var callMode = ProcessingMode.local.rawValue
+    @AppStorage(FeatureProcessing.polishModeKey) private var polishMode = ProcessingMode.local.rawValue
+    @AppStorage(FeatureProcessing.translationModeKey) private var translationMode = ProcessingMode.local.rawValue
+    @AppStorage(FeatureProcessing.dictationModeKey) private var dictationMode = ProcessingMode.local.rawValue
+    @AppStorage(FeatureProcessing.cloudVendorKey) private var cloudVendor = CloudVendor.gemini.rawValue
+    @AppStorage(FeatureProcessing.refineIntervalKey) private var refineInterval = 120.0
+    @AppStorage(FeatureProcessing.showBarKey) private var showProcessingBar = true
+    @AppStorage(FeatureProcessing.appleTranslationKey) private var useAppleTranslation = false
     @State private var section: SettingsSection = .general
     @State private var diarizerDownloading = false
     @AppStorage("rememberVoices") private var rememberVoices = false
@@ -95,7 +101,10 @@ struct SettingsView: View {
     private var settingsFingerprint: String {
         "\(selectedModel)|\(appearance)|\(copilotEnabled)|\(transcriptionLanguage)|"
             + "\(customVocabulary)|\(echoCancellation)|\(transcriptionBackend)|\(polishAfterCall)|"
-            + "\(copilotPace)|\(copilotWindow)|\(livePreview)"
+            + "\(copilotPace)|\(copilotWindow)|\(livePreview)|\(callMode)|\(polishMode)|"
+            + "\(translationMode)|\(dictationMode)|"
+            + "\(cloudVendor)|\(refineInterval)|\(useAppleTranslation)|\(translationOllamaModel)|"
+            + "\(recordingManager.translationStore.targetCode)"
     }
 
     private func flashSavedToast() {
@@ -255,11 +264,15 @@ struct SettingsView: View {
                     Text("On-device Whisper — private, free").tag(TranscriptionBackend.local.rawValue)
                     Text("Groq cloud — big-model accuracy, ~$0.04/hr").tag(TranscriptionBackend.groq.rawValue)
                     Text("Deepgram cloud — word-by-word streaming, ~$1/hr").tag(TranscriptionBackend.deepgram.rawValue)
+                    Text("Gemini Live — streaming meetings & translation").tag(TranscriptionBackend.gemini.rawValue)
                 }
                 .pickerStyle(.radioGroup)
 
                 if transcriptionBackend == TranscriptionBackend.local.rawValue {
                     Hint("Every second of audio stays on this Mac.")
+                    if callMode == ProcessingMode.cloud.rawValue && cloudVendor == CloudVendor.gemini.rawValue {
+                        Hint("Cloud + Gemini still uses Gemini Live for the meeting, not Whisper.")
+                    }
                 } else {
                     HStack(spacing: 6) {
                         Hint("Cloud engines need a key, and fall back to on-device if it's missing.")
@@ -269,13 +282,75 @@ struct SettingsView: View {
                     }
                 }
 
-                Divider()
+            }
 
-                Toggle("Polish transcript after each call", isOn: $polishAfterCall)
-                Hint("Re-transcribes the saved audio with a large Groq model (~$0.04/hr) and regenerates the report.")
+            Section("Processing") {
+                    modePicker("Call", selection: $callMode, allowCloud: cloudSpeechReady)
+                    modePicker("Polish", selection: $polishMode, allowCloud: cloudSpeechReady)
+                    modePicker("Dictation", selection: $dictationMode, allowCloud: cloudSpeechReady)
+                    Picker("Cloud vendor", selection: $cloudVendor) {
+                        Text("Gemini").tag(CloudVendor.gemini.rawValue)
+                        Text("Groq").tag(CloudVendor.groq.rawValue)
+                        Text("Custom server").tag(CloudVendor.custom.rawValue)
+                    }
+                    if callMode != ProcessingMode.local.rawValue {
+                        Picker("Refine window", selection: $refineInterval) {
+                            Text("60 s").tag(60.0)
+                            Text("120 s").tag(120.0)
+                            Text("180 s").tag(180.0)
+                        }
+                    }
+                    Picker("Translate into", selection: Binding(
+                        get: { recordingManager.translationStore.targetCode },
+                        set: { recordingManager.setTranslationTarget($0) }
+                    )) {
+                        ForEach(TranslationLanguage.allCases) { language in
+                            Text(language.label).tag(language.rawValue)
+                        }
+                    }
+                    if AppleTranslationGate.isSupported {
+                        Toggle("Apple Translation", isOn: $useAppleTranslation)
+                    }
+                Hint("Call, Polish, and Dictation pick Local / Hybrid / Cloud. Translation always stays in the app.")
+                Hint("Translation downloads into the app like Whisper. No Ollama and no cloud vendor.")
+                Picker("Translation model", selection: $translationOllamaModel) {
+                    ForEach(LocalTextCatalog.models) { entry in
+                        Text(entry.label).tag(entry.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                LocalTextModelStatusView(modelID: translationOllamaModel)
+                if AppleTranslationGate.isSupported {
+                    Hint("Apple Translation is optional. When you pick a language, Parrot asks once to download that pack. Meetings never show that dialog. If you skip it, the selected model translates.")
+                }
+                if !cloudSpeechReady {
+                    Hint("Add the vendor's API key to enable Hybrid and Cloud speech. Custom is for text transforms only.")
+                }
+                Button("Open API Keys") { section = .apiKeys }
+                    .buttonStyle(.link)
+            }
 
-                Divider()
+            Section("Dictation & transforms") {
+                    Toggle("Show floating bar", isOn: $showProcessingBar)
+                        .onChange(of: showProcessingBar) { _, show in
+                            ProcessingBarController.shared.setVisible(show)
+                        }
+                    Hint("A pill at the bottom of the screen. Click Set key to map a shortcut. Dictation and transforms land in the field you are typing in when Accessibility is allowed.")
+                    HotkeyRecorderRow(title: "Dictation", slot: .dictation)
+                    HotkeyRecorderRow(title: "Transform — local", slot: .transformLocal)
+                    HotkeyRecorderRow(title: "Transform — cloud", slot: .transformCloud)
+                    Hint("Transforms are Local vs Cloud only. Unbound until you record a shortcut. Right-click a shortcut to clear it.")
+                    Picker("Default transform", selection: Binding(
+                        get: { recordingManager.transforms.itemID },
+                        set: { recordingManager.transforms.itemID = $0 }
+                    )) {
+                        ForEach(TransformCatalog.all()) { item in
+                            Text(item.name).tag(item.id)
+                        }
+                    }
+            }
 
+            Section {
                 Toggle("Show words as they're spoken", isOn: $livePreview)
                 Hint("Gray preview text while someone is mid-sentence, replaced by the final line. On-device engine only; turn off if calls make your Mac run hot. Applies to the next recording.")
             }
@@ -360,6 +435,7 @@ struct SettingsView: View {
                     Text("Japanese").tag("ja")
                     Text("Korean").tag("ko")
                     Text("Hindi").tag("hi")
+                    Text("Urdu").tag("ur")
                 }
                 Hint("Applies to the next recording. Pick a language only if auto-detect keeps guessing wrong.")
             }
@@ -372,6 +448,9 @@ struct SettingsView: View {
                 Hint("Names and jargon Whisper mis-hears — comma or line separated (e.g. LaunchEase, Uygar).")
             }
         }
+        .modifier(AppleTranslationPrep(
+            targetCode: recordingManager.translationStore.targetCode,
+            enabled: AppleTranslationGate.shouldPrepPack))
     }
 
     @ViewBuilder
@@ -482,29 +561,9 @@ struct SettingsView: View {
                             .font(Theme.Typography.secondary)
                     }
                 case .ollama:
-                    Picker("Model", selection: ollamaModelSelection) {
-                        ForEach(OllamaCatalog.models, id: \.id) { entry in
-                            Text(entry.label).tag(entry.id)
-                        }
-                        Divider()
-                        Text("Custom…").tag("custom")
-                    }
-                    .pickerStyle(.menu)
-
-                    if showsOllamaCustomField {
-                        LabeledContent("Model name") {
-                            // Empty title + prompt: a titled TextField in a Form
-                            // renders its title as a second trailing label.
-                            TextField("", text: $copilotOllamaModel, prompt: Text("model:tag"))
-                                .labelsHidden()
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 220)
-                        }
-                        Hint("Any model from ollama.com/library — prefer small instruct models; \"thinking\" models (qwen3, deepseek-r1) are too slow for live cards.")
-                    }
-
-                    OllamaModelStatusView(model: copilotOllamaModel)
-
+                    OllamaModelPicker(
+                        model: $copilotOllamaModel,
+                        hint: "Any model from ollama.com/library — prefer small instruct models; \"thinking\" models (qwen3, deepseek-r1) are too slow for live cards.")
                     Hint("Runs entirely on this Mac — free, private, no key, works offline. Expect live cards to arrive slower and read rougher than Claude's — reports are unaffected.")
                 case .custom:
                     LabeledContent("Server URL") {
@@ -528,27 +587,31 @@ struct SettingsView: View {
                 }
     }
 
-    /// Dropdown selection for the Ollama model: catalog id, or "custom" when the
-    /// stored model isn't in the catalog (or the user picked Custom…).
-    private var ollamaModelSelection: Binding<String> {
-        Binding(
-            get: {
-                if ollamaCustomModelEditing { return "custom" }
-                return OllamaCatalog.ids.contains(copilotOllamaModel) ? copilotOllamaModel : "custom"
-            },
-            set: { picked in
-                if picked == "custom" {
-                    ollamaCustomModelEditing = true
-                } else {
-                    ollamaCustomModelEditing = false
-                    copilotOllamaModel = picked
-                }
-            }
-        )
+    private func modePicker(_ title: String, selection: Binding<String>, allowCloud: Bool) -> some View {
+        Picker(title, selection: selection) {
+            Text("Local — downloaded model only").tag(ProcessingMode.local.rawValue)
+            Text("Hybrid — downloaded model, then cloud enhances").tag(ProcessingMode.hybrid.rawValue)
+                .disabled(!allowCloud)
+            Text("Cloud — vendor only, no local model").tag(ProcessingMode.cloud.rawValue)
+                .disabled(!allowCloud)
+        }
+        .pickerStyle(.radioGroup)
     }
 
-    private var showsOllamaCustomField: Bool {
-        ollamaCustomModelEditing || !OllamaCatalog.ids.contains(copilotOllamaModel)
+    /// Hybrid/Cloud speech needs Gemini or Groq with a key. Custom is text-only.
+    private var cloudSpeechReady: Bool {
+        let vendor = CloudVendor.resolved(cloudVendor)
+        return vendor != .custom && vendor.speechKey() != nil
+    }
+
+    /// Translation / transforms can use Custom as well as Gemini / Groq.
+    private var cloudRewriteReady: Bool {
+        switch CloudVendor.resolved(cloudVendor) {
+        case .gemini, .groq: CloudVendor.resolved(cloudVendor).speechKey() != nil
+        case .custom:
+            !OpenAICompatibleProvider.customBaseURL.trimmingCharacters(in: .whitespaces).isEmpty
+                && !OpenAICompatibleProvider.customModel.isEmpty
+        }
     }
 
     // MARK: - API Keys
@@ -579,6 +642,15 @@ struct SettingsView: View {
                     account: TranscriptionBackend.deepgram.keychainAccount!,
                     placeholder: "40-character hex key",
                     hint: "Billed per audio track. New accounts include $200 credit. Keys: console.deepgram.com"
+                )
+            }
+
+            Section("Gemini — live meetings, refine & post-call translation") {
+                ProviderKeyField(
+                    label: "Gemini API key",
+                    account: CloudVendor.gemini.keychainAccount,
+                    placeholder: "AIza…",
+                    hint: "Powers Gemini Live during a call and Live Translate after Stop. Keys: aistudio.google.com/apikey"
                 )
             }
 

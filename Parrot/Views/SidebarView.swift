@@ -7,6 +7,9 @@ struct SidebarView: View {
     /// Settings render in the main detail pane (the old sheet was a cramped
     /// 520pt popup that made the Profiles editor unusable).
     @Binding var showSettings: Bool
+    @Binding var showDictations: Bool
+    @Binding var showTransforms: Bool
+    @Binding var showTranslate: Bool
     @Binding var searchText: String
 
     @Environment(RecordingManager.self) private var recordingManager
@@ -35,15 +38,45 @@ struct SidebarView: View {
 
             // Primary nav
             VStack(spacing: 2) {
-                NavRow(title: "Dashboard", icon: "house", selected: showDashboard && !showSettings) {
+                NavRow(title: "Dashboard", icon: "house", selected: showDashboard && !showSettings && !showDictations && !showTransforms && !showTranslate) {
                     showDashboard = true
                     selectedMeeting = nil
                     showSettings = false
+                    showDictations = false
+                    showTransforms = false
+                    showTranslate = false
                 }
                 NavRow(title: "New recording", icon: "mic.circle", selected: false) {
                     showDashboard = true
                     selectedMeeting = nil
                     showSettings = false
+                    showDictations = false
+                    showTransforms = false
+                    showTranslate = false
+                }
+                NavRow(title: "Translate", icon: "globe", selected: showTranslate) {
+                    showTranslate = true
+                    showDashboard = false
+                    selectedMeeting = nil
+                    showSettings = false
+                    showDictations = false
+                    showTransforms = false
+                }
+                NavRow(title: "Dictations", icon: "text.cursor", selected: showDictations) {
+                    showDictations = true
+                    showDashboard = false
+                    selectedMeeting = nil
+                    showSettings = false
+                    showTransforms = false
+                    showTranslate = false
+                }
+                NavRow(title: "Transforms", icon: "pencil.and.list.clipboard", selected: showTransforms) {
+                    showTransforms = true
+                    showDashboard = false
+                    selectedMeeting = nil
+                    showSettings = false
+                    showDictations = false
+                    showTranslate = false
                 }
             }
             .padding(.horizontal, 8)
@@ -75,6 +108,9 @@ struct SidebarView: View {
                                         selectedMeeting = meeting
                                         showDashboard = false
                                         showSettings = false
+                                        showDictations = false
+                                        showTransforms = false
+                                        showTranslate = false
                                     }
                                     .meetingContextMenu(meeting, onDeleted: {
                                         if selectedMeeting?.id == meeting.id {
@@ -96,6 +132,9 @@ struct SidebarView: View {
                     showSettings = true
                     showDashboard = false
                     selectedMeeting = nil
+                    showDictations = false
+                    showTransforms = false
+                    showTranslate = false
                 }
                 AccountChip()
             }

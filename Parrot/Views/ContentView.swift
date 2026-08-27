@@ -8,6 +8,10 @@ struct ContentView: View {
     @State private var selectedMeeting: Meeting?
     @State private var showDashboard = true
     @State private var showSettings = false
+    @State private var showDictations = false
+    @State private var showTransforms = false
+    @State private var showTranslate = false
+    @State private var selectedDictation: DictationNote?
     @State private var searchText = ""
     @State private var hasLoadedModel = false
     /// File → Import Audio… (⌘O); the dashboard has its own importer button.
@@ -23,12 +27,21 @@ struct ContentView: View {
                 selectedMeeting: $selectedMeeting,
                 showDashboard: $showDashboard,
                 showSettings: $showSettings,
+                showDictations: $showDictations,
+                showTransforms: $showTransforms,
+                showTranslate: $showTranslate,
                 searchText: $searchText
             )
             .navigationSplitViewColumnWidth(min: 215, ideal: 236, max: 320)
         } detail: {
             if recordingManager.isRecording {
                 LiveRecordingView()
+            } else if showTranslate {
+                TranslateSetupView()
+            } else if showDictations {
+                DictationListView(selected: $selectedDictation)
+            } else if showTransforms {
+                TransformsView()
             } else if showSettings {
                 settingsPane
             } else if showDashboard {
@@ -63,6 +76,8 @@ struct ContentView: View {
                     ImportingBanner(progress: progress)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
+                ProcessingHUD(text: recordingManager.dictation.phase.hud)
+                ProcessingHUD(text: recordingManager.transforms.phase.hud)
             }
             .padding(.top, 12)
         }
@@ -113,6 +128,9 @@ struct ContentView: View {
         selectedMeeting = meeting
         showDashboard = false
         showSettings = false
+        showDictations = false
+        showTransforms = false
+        showTranslate = false
     }
 
     /// Settings in the main pane — the old sheet was a cramped 520pt popup.
