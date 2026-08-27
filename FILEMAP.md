@@ -22,7 +22,7 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Models/KindStyle.swift` | 84 | Maps insight kinds to icon/color; `Color` helpers |
 | `Models/KnowledgeBase.swift` | 54 | KB document/chunk/reference value types |
 | `Models/AIUsage.swift` | 131 | Token accounting and per-model price table |
-| `Models/ProcessingMode.swift` | 131 | Per-feature Local / Hybrid / Cloud; same model rule everywhere |
+| `Models/ProcessingMode.swift` | 140 | Per-feature Local / Hybrid / Cloud; same model rule everywhere |
 | `Models/SpeakerProfile.swift` | 30 | Remembered voice: name + running-mean embedding (opt-in, local) |
 | `Models/DictationNote.swift` | 24 | Saved dictation utterance for the sidebar list |
 
@@ -39,10 +39,10 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Services/GeminiTranscription.swift` | 320 | Gemini 3.5 Transcribe Interactions client + hybrid window refiner |
 | `Services/GeminiLive.swift` | 360 | Gemini Transcribe Live sockets + post-call Live Translate |
 | `Services/TextRewriter.swift` | 241 | Local/cloud rewrite + clipboard helper (transforms, cloud translation) |
-| `Services/LocalTextModel.swift` | 180 | In-process MLX translation models (download like Whisper, no Ollama) |
+| `Services/LocalTextModel.swift` | 220 | In-process MLX translation; Local mode auto-loads and unloads |
 | `Services/TranslationService.swift` | 280 | Translation store; Apple packs asked once before a call |
-| `Services/HotkeyCenter.swift` | 150 | Carbon global hotkeys for dictation / two transform destinations |
-| `Services/DictationController.swift` | 130 | Mic dictation → transcript → focused field or clipboard |
+| `Services/HotkeyCenter.swift` | 200 | Carbon hotkeys: hold, hands-free, paste last, two transforms |
+| `Services/DictationController.swift` | 200 | Hold / hands-free dictation → focused field or clipboard |
 | `Services/FocusText.swift` | 70 | AX selected-text read/write + ⌘V fallback |
 | `Services/TransformController.swift` | 70 | Local vs cloud rewrite; clipboard out; busy guard |
 | `Services/DiarizationEngine.swift` | 105 | FluidAudio offline pyannote diarization (CoreML): labels + per-speaker embeddings |
@@ -71,7 +71,7 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Views/BugReportSheet.swift` | 150 | Bug/idea report form + the corner ladybug button |
 | `Views/ReportContentView.swift` | 267 | Report section cards, talk-ratio bar, prose blocks |
 | `Views/SentimentStripView.swift` | 60 | Sentiment gauge strip |
-| `Views/SettingsView.swift` | 829 | All settings sections, provider keys, KB docs |
+| `Views/SettingsView.swift` | 920 | Settings pages including Create (bar, auto-paste, key bindings) |
 | `Views/ProfilesSettingsView.swift` | 689 | Call-profile editor: kinds, gauges, icon picker |
 | `Views/OnboardingView.swift` | 340 | Permission walkthrough + model choice |
 | `Views/OllamaModelStatusView.swift` | 136 | Local model presence/pull status |
@@ -79,7 +79,7 @@ tree. Line counts are rough — they flag which files are worth reading whole.
 | `Views/AppCommands.swift` | 240 | `AppSession`, menu commands, context menus, notifications |
 | `Views/MenuBarView.swift` | 59 | Menu bar extra |
 | `Views/Theme.swift` | 151 | Single source of colors, fonts, metrics |
-| `Views/DictationHUD.swift` | 180 | Wispr-style floating mic, HUD, hotkey chips |
+| `Views/DictationHUD.swift` | 220 | Wispr-style floating mic, HUD, hotkey chips |
 | `Views/DictationListView.swift` | 80 | History of finished dictations |
 | `Views/TransformsView.swift` | 120 | Manage built-in and custom rewrite presets |
 | `Views/TranslateSetupView.swift` | 70 | Pre-call language picker for a translation recording |

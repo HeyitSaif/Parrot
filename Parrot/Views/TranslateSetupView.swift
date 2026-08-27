@@ -66,9 +66,11 @@ struct TranslateSetupView: View {
         recordingManager.beginTranslationSession()
         do {
             try await recordingManager.preflightPermissionsAndStart(modelContext: modelContext)
+            if !recordingManager.isRecording {
+                recordingManager.cancelTranslationSession()
+            }
         } catch {
-            recordingManager.translationSession = false
-            recordingManager.translationStore.forced = false
+            recordingManager.cancelTranslationSession()
             errorMessage = error.localizedDescription
         }
     }

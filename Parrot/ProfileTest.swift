@@ -876,6 +876,15 @@ enum ProfileTest {
         check("translation has its own ollama model",
               FeatureProcessing.translationOllamaModelKey != "copilotOllamaModel"
               && FeatureProcessing.translationOllamaDefault == "gemma3:1b")
+        let previousModel = UserDefaults.standard.string(forKey: FeatureProcessing.translationOllamaModelKey)
+        UserDefaults.standard.set("llama3:8b", forKey: FeatureProcessing.translationOllamaModelKey)
+        check("stale translation model id falls back",
+              FeatureProcessing.translationOllamaModel == FeatureProcessing.translationOllamaDefault)
+        if let previousModel {
+            UserDefaults.standard.set(previousModel, forKey: FeatureProcessing.translationOllamaModelKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: FeatureProcessing.translationOllamaModelKey)
+        }
         check("ollama catalog includes qwen and gemma1b",
               OllamaCatalog.ids.contains("qwen2.5:3b")
               && OllamaCatalog.ids.contains("qwen2.5:1.5b")
@@ -1013,6 +1022,20 @@ enum ProfileTest {
         check("translation assign rejects glancing overlap", glancing[0] == nil)
         let cmdQ = HotkeyBinding(keyCode: UInt32(kVK_ANSI_Q), carbonModifiers: UInt32(cmdKey))
         check("⌘Q is reserved", cmdQ.isReserved)
+        check("⌘Space is reserved",
+              HotkeyBinding(keyCode: UInt32(kVK_Space), carbonModifiers: UInt32(cmdKey)).isReserved)
+        check("hold and hands-free are different slots",
+              HotkeySlot.dictationHold.defaultsKey != HotkeySlot.dictation.defaultsKey
+              && HotkeySlot.dictationHold.rawValue == 4)
+        check("paste last is its own slot", HotkeySlot.pasteLast.rawValue == 5)
+        check("create settings sits with general and recording",
+              SettingsSection.allCases.map(\.rawValue).contains("create"))
+        let previousPaste = UserDefaults.standard.object(forKey: FeatureProcessing.autoPasteKey)
+        UserDefaults.standard.removeObject(forKey: FeatureProcessing.autoPasteKey)
+        check("auto-paste defaults on", FocusText.autoPasteEnabled)
+        if let previousPaste {
+            UserDefaults.standard.set(previousPaste, forKey: FeatureProcessing.autoPasteKey)
+        }
         check("modifier display is control-option-shift-command",
               HotkeyBinding(keyCode: UInt32(kVK_ANSI_A),
                             carbonModifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey))
@@ -1083,6 +1106,12 @@ enum ProfileTest {
         } catch {}
         check("over-cap refuse", overCap)
         check("under-cap allowed", (try? TextRewriter.guardLength("short")) != nil)
+
+        LocalTextModel.shared.unload()
+        check("unload leaves the local model idle or missing",
+              LocalTextModel.shared.state == .idle
+              || LocalTextModel.shared.state == .missing
+              || LocalTextModel.shared.state == .unsupported)
     }
 
     @MainActor
@@ -1113,6 +1142,24 @@ enum ProfileTest {
         check("polish save succeeded", replaced)
         check("in-window rows replaced", texts.contains("new-a") && !texts.contains("old-a") && !texts.contains("old-b"))
         check("save-failure path keeps tail", texts.contains("tail"))
+
+        let later = Meeting()
+        ctx.insert(later)
+        for (start, text) in [(0.0, "keep-a"), (30.0, "keep-b"), (80.0, "mid"), (150.0, "tail-2")] {
+            let row = TranscriptSegment(startTime: start, endTime: start + 1, text: text,
+                                        speakerLabel: "Them", confidence: nil)
+            ctx.insert(row)
+            row.meeting = later
+        }
+        try? ctx.save()
+        _ = TranscriptPolisher.applyWindow(
+            [.init(text: "new-mid", start: 80, end: 82, speaker: "Them")],
+            to: later, windowStart: 60, windowEnd: 120, context: ctx)
+        let laterTexts = Set(later.segments.map(\.text))
+        check("earlier windows survive a later refine",
+              laterTexts.contains("keep-a") && laterTexts.contains("keep-b"))
+        check("only the refine window is replaced",
+              laterTexts.contains("new-mid") && !laterTexts.contains("mid") && laterTexts.contains("tail-2"))
     }
 
     static func testMainDetailPane() {

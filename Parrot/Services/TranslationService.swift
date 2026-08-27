@@ -149,7 +149,7 @@ enum LocalTranslation {
 
     static func unavailableMessage(target: String) -> String {
         if whisperTranslatesToEnglish(target) {
-            return TextRewriter.ollamaUnavailableMessage
+            return "Download the translation model in Settings → Translation — same as Whisper."
         }
         return "Whisper only translates speech into English. For other languages, download the translation model in Settings (same as Whisper) or an Apple pack, or use Hybrid / Cloud with a Gemini key."
     }
@@ -198,6 +198,7 @@ final class TranslationStore {
 
     func enqueue(_ segments: [TranscriptSegment], force: Bool = false) {
         guard isEnabled else { return }
+        LocalTextModel.preloadForLocalTranslation()
         let known = force ? Set<UUID>() : Set(lines.keys).union(pending.map(\.id)).union(failed)
         for segment in segments where !known.contains(segment.id) {
             let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)

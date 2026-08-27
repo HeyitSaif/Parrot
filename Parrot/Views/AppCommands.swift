@@ -19,8 +19,10 @@ extension Notification.Name {
     static let parrotReportBug = Notification.Name("parrotReportBug")
     /// A dictation / transform hotkey was recorded or cleared.
     static let parrotHotkeysChanged = Notification.Name("parrotHotkeysChanged")
-    /// Floating bar → Settings, on the Transcription page.
+    /// Floating bar → Settings, on the Create page.
     static let parrotShowTranscriptionSettings = Notification.Name("parrotShowTranscriptionSettings")
+    /// One shortcut chip is listening — others must stop.
+    static let parrotHotkeyListen = Notification.Name("parrotHotkeyListen")
 }
 
 // MARK: - Shared meeting actions

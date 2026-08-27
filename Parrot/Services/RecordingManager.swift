@@ -89,13 +89,17 @@ final class RecordingManager {
             UserDefaults.standard.string(forKey: "whisperModel") ?? "base"
         )
         dictation.modelContext = modelContext
+        dictation.isCallRecording = { [weak self] in self?.isRecording == true }
         dictation.transcribeLocal = { [weak self] url in
             guard let self else { return "" }
             let results = try await self.transcriptionEngine.transcribeFile(url: url)
             return results.map(\.text).joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        HotkeyCenter.shared.onDictation = { [weak self] in self?.dictation.toggle() }
+        HotkeyCenter.shared.onDictation = { [weak self] in self?.dictation.toggleHandsFree() }
+        HotkeyCenter.shared.onDictationHoldStart = { [weak self] in self?.dictation.beginHold() }
+        HotkeyCenter.shared.onDictationHoldEnd = { [weak self] in self?.dictation.endHold() }
+        HotkeyCenter.shared.onPasteLast = { [weak self] in self?.dictation.pasteLast() }
         HotkeyCenter.shared.onTransformLocal = { [weak self] in
             self?.transforms.run(destination: .local)
         }
@@ -110,6 +114,14 @@ final class RecordingManager {
         translationStore.forced = true
         UserDefaults.standard.set(LiveSideTab.translation.rawValue, forKey: "liveSideTab")
         refreshWhisperTranslate()
+        LocalTextModel.preloadForLocalTranslation()
+    }
+
+    func cancelTranslationSession() {
+        translationSession = false
+        translationStore.forced = false
+        refreshWhisperTranslate()
+        LocalTextModel.unloadAfterLocalTranslation()
     }
 
     func setTranslationTarget(_ code: String, segments: [TranscriptSegment] = []) {
@@ -374,6 +386,8 @@ final class RecordingManager {
                         meetingRef.translationTargetCode = translationTarget
                     }
                     await self.translateTranscript(meeting: meetingRef)
+                } else {
+                    LocalTextModel.unloadAfterLocalTranslation()
                 }
                 await self.postProcess(meeting: meetingRef)
                 if self.callAnalysisEngine.isEnabled, self.callAnalysisEngine.provider.isConfigured {
@@ -702,7 +716,17 @@ final class RecordingManager {
         guard translatingMeetingID == nil else { return }
         translatingMeetingID = meeting.id
         transcriptTranslateNotice = nil
-        defer { translatingMeetingID = nil }
+        defer {
+            translatingMeetingID = nil
+            LocalTextModel.unloadAfterLocalTranslation()
+        }
+        if FeatureProcessing.translation == .local {
+            do {
+                try await LocalTextModel.shared.ensureLoaded(FeatureProcessing.translationOllamaModel)
+            } catch {
+                transcriptTranslateNotice = error.localizedDescription
+            }
+        }
 
         if meeting.translationTargetCode.isEmpty {
             meeting.translationTargetCode = translationStore.target
@@ -715,10 +739,10 @@ final class RecordingManager {
         let polishAfter = TranslationRouting.usesGemini(mode)
             && CloudVendor.selected == .gemini
             && meetingHasAudio(meeting)
-        var destinations = TranslationRouting.destinations(for: mode)
         if polishAfter {
-            destinations.removeAll { $0 == .cloud }
+            await polishTranslation(meeting: meeting, target: target, replaceExisting: true)
         }
+        let destinations = TranslationRouting.destinations(for: mode)
 
         for segment in meeting.sortedSegments {
             let source = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -727,7 +751,7 @@ final class RecordingManager {
                 segment.translation = source
                 continue
             }
-            if !replaceExisting, !segment.translation.isEmpty { continue }
+            if !replaceExisting || polishAfter, !segment.translation.isEmpty { continue }
             for destination in destinations {
                 if destination == .local, skipLocal { continue }
                 do {
@@ -752,10 +776,6 @@ final class RecordingManager {
             }
         }
         try? modelContext?.save()
-
-        if polishAfter {
-            await polishTranslation(meeting: meeting, target: target, replaceExisting: replaceExisting)
-        }
     }
 
     private func meetingHasAudio(_ meeting: Meeting) -> Bool {
@@ -771,31 +791,39 @@ final class RecordingManager {
         guard CloudVendor.selected == .gemini else { return }
         guard let key = CloudVendor.gemini.speechKey() else { return }
         let code = TranslationLanguage(rawValue: target)?.bcp47 ?? target
-        var utterances: [(text: String, start: Double, end: Double)] = []
+        let segments = meeting.sortedSegments
+        var any = false
         do {
-            for path in [meeting.systemAudioPath.nilIfEmpty, meeting.micAudioPath?.nilIfEmpty].compactMap({ $0 }) {
-                let url = URL(fileURLWithPath: path)
-                let samples = try AudioFileLoader.load16kMono(url: url)
+            for (path, mine) in [
+                (meeting.systemAudioPath.nilIfEmpty, false),
+                (meeting.micAudioPath?.nilIfEmpty, true),
+            ] as [(String?, Bool)] {
+                guard let path else { continue }
+                let samples = try AudioFileLoader.load16kMono(url: URL(fileURLWithPath: path))
                 guard !samples.isEmpty else { continue }
                 let rows = try await GeminiLiveTranslator.translateTrack(
                     samples: samples, targetBCP47: code, apiKey: key)
-                utterances.append(contentsOf: rows)
+                let paired = segments.enumerated().filter {
+                    mine ? $0.element.speakerLabel == "Me" : $0.element.speakerLabel != "Me"
+                }
+                let assigned = TranslationAssigner.apply(
+                    translations: rows.map { ($0.start, $0.end, $0.text) },
+                    segments: paired.map { ($0.element.startTime, $0.element.endTime) })
+                for (local, text) in assigned where !text.isEmpty {
+                    let index = paired[local].offset
+                    if !replaceExisting, !segments[index].translation.isEmpty { continue }
+                    segments[index].translation = text
+                    any = true
+                }
             }
         } catch {
             NSLog("Parrot: post-call translation failed — \(error.localizedDescription)")
-            translationStore.notice = "Post-call translation failed — live lines kept"
+            translationStore.notice = any
+                ? "Post-call translation failed — earlier lines kept"
+                : "Post-call translation failed — try Translate transcript again"
             return
         }
-        guard !utterances.isEmpty else { return }
-        let segments = meeting.sortedSegments
-        let assigned = TranslationAssigner.apply(
-            translations: utterances.map { ($0.start, $0.end, $0.text) },
-            segments: segments.map { ($0.startTime, $0.endTime) })
-        for (index, text) in assigned where !text.isEmpty {
-            if !replaceExisting, !segments[index].translation.isEmpty { continue }
-            segments[index].translation = text
-        }
-        try? modelContext?.save()
+        if any { try? modelContext?.save() }
     }
 
     // MARK: - AI usage snapshot

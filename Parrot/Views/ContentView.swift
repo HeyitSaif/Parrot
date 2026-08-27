@@ -151,6 +151,7 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .parrotShowTranscriptionSettings)) { _ in
+            SettingsSection.pending = .create
             showSettings = true
             showDashboard = false
             selectedMeeting = nil

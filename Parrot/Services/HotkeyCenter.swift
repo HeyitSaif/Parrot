@@ -17,7 +17,7 @@ struct HotkeyBinding: Equatable, Codable {
 
     var isReserved: Bool {
         carbonModifiers == UInt32(cmdKey)
-            && [kVK_ANSI_Q, kVK_ANSI_W, kVK_ANSI_V].contains(Int(keyCode))
+            && [kVK_ANSI_Q, kVK_ANSI_W, kVK_ANSI_V, kVK_Space, kVK_Tab].contains(Int(keyCode))
     }
 
     static func from(event: NSEvent) -> HotkeyBinding? {
@@ -117,23 +117,31 @@ struct HotkeyBinding: Equatable, Codable {
 }
 
 enum HotkeySlot: UInt32, CaseIterable {
+    /// Hands-free: press to start, press again to stop and paste.
     case dictation = 1
     case transformLocal = 2
     case transformCloud = 3
+    /// Push-to-talk: hold to dictate, release to stop and paste.
+    case dictationHold = 4
+    case pasteLast = 5
 
     var defaultsKey: String {
         switch self {
         case .dictation: "hotkey.dictation"
         case .transformLocal: "hotkey.transformLocal"
         case .transformCloud: "hotkey.transformCloud"
+        case .dictationHold: "hotkey.dictationHold"
+        case .pasteLast: "hotkey.pasteLast"
         }
     }
 
     var label: String {
         switch self {
-        case .dictation: "Dictation"
+        case .dictation: "Hands-free dictation"
         case .transformLocal: "Transform — local"
         case .transformCloud: "Transform — cloud"
+        case .dictationHold: "Hold to dictate"
+        case .pasteLast: "Paste last transcript"
         }
     }
 }
@@ -144,8 +152,12 @@ final class HotkeyCenter {
     static let shared = HotkeyCenter()
 
     var onDictation: (() -> Void)?
+    var onDictationHoldStart: (() -> Void)?
+    var onDictationHoldEnd: (() -> Void)?
+    var onPasteLast: (() -> Void)?
     var onTransformLocal: (() -> Void)?
     var onTransformCloud: (() -> Void)?
+    private(set) var failedSlots: Set<HotkeySlot> = []
 
     private var refs: [EventHotKeyRef?] = []
     private var handler: EventHandlerRef?
@@ -157,9 +169,10 @@ final class HotkeyCenter {
 
     func reload() {
         unregisterAll()
-        register(.dictation, HotkeyBinding.load(key: HotkeySlot.dictation.defaultsKey))
-        register(.transformLocal, HotkeyBinding.load(key: HotkeySlot.transformLocal.defaultsKey))
-        register(.transformCloud, HotkeyBinding.load(key: HotkeySlot.transformCloud.defaultsKey))
+        failedSlots = []
+        for slot in HotkeySlot.allCases {
+            register(slot, HotkeyBinding.load(key: slot.defaultsKey))
+        }
         NotificationCenter.default.post(name: .parrotHotkeysChanged, object: nil)
     }
 
@@ -169,7 +182,11 @@ final class HotkeyCenter {
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(binding.keyCode, binding.carbonModifiers,
                                          hotKeyID, GetApplicationEventTarget(), 0, &ref)
-        if status == noErr { refs.append(ref) }
+        if status == noErr {
+            refs.append(ref)
+        } else {
+            failedSlots.insert(slot)
+        }
     }
 
     private func unregisterAll() {
@@ -179,27 +196,39 @@ final class HotkeyCenter {
 
     private func installHandler() {
         guard handler == nil else { return }
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                      eventKind: UInt32(kEventHotKeyPressed))
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                          eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                          eventKind: UInt32(kEventHotKeyReleased)),
+        ]
         let callback: EventHandlerUPP = { _, event, userData in
             guard let event, let userData else { return OSStatus(eventNotHandledErr) }
             var hotKeyID = EventHotKeyID()
             GetEventParameter(event, EventParamName(kEventParamDirectObject),
                               EventParamType(typeEventHotKeyID), nil,
                               MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            let released = GetEventKind(event) == UInt32(kEventHotKeyReleased)
             let center = Unmanaged<HotkeyCenter>.fromOpaque(userData).takeUnretainedValue()
-            DispatchQueue.main.async { center.handle(id: hotKeyID.id) }
+            DispatchQueue.main.async { center.handle(id: hotKeyID.id, released: released) }
             return noErr
         }
-        InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventType,
+        InstallEventHandler(GetApplicationEventTarget(), callback, 2, &eventTypes,
                             Unmanaged.passUnretained(self).toOpaque(), &handler)
     }
 
-    private func handle(id: UInt32) {
+    private func handle(id: UInt32, released: Bool) {
         switch HotkeySlot(rawValue: id) {
-        case .dictation: onDictation?()
-        case .transformLocal: onTransformLocal?()
-        case .transformCloud: onTransformCloud?()
+        case .dictationHold:
+            if released { onDictationHoldEnd?() } else { onDictationHoldStart?() }
+        case .dictation:
+            if !released { onDictation?() }
+        case .pasteLast:
+            if !released { onPasteLast?() }
+        case .transformLocal:
+            if !released { onTransformLocal?() }
+        case .transformCloud:
+            if !released { onTransformCloud?() }
         case nil: break
         }
     }

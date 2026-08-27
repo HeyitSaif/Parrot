@@ -86,6 +86,7 @@ final class LocalTextModel {
     private var container: ModelContainer?
     private var loadedID: String?
     private var loadGeneration = 0
+    private var inFlight: (id: String, task: Task<ModelContainer, Error>)?
 
     static func isInstalled(_ id: String) -> Bool {
         guard let entry = LocalTextCatalog.entry(id: id) else { return false }
@@ -119,6 +120,38 @@ final class LocalTextModel {
         }
     }
 
+    func ensureLoaded(_ id: String) async throws {
+        _ = try await load(id)
+    }
+
+    /// Drop the resident weights. Local translation loads on start and
+    /// calls this when that pass finishes so the GPU memory goes back.
+    func unload() {
+        loadGeneration += 1
+        inFlight?.task.cancel()
+        inFlight = nil
+        container = nil
+        loadedID = nil
+        refresh(FeatureProcessing.translationOllamaModel)
+    }
+
+    /// Local mode only — Hybrid/Cloud keep the model out of this lifecycle.
+    static func preloadForLocalTranslation() {
+        guard FeatureProcessing.translation == .local else { return }
+        Task { @MainActor in
+            do {
+                try await shared.ensureLoaded(FeatureProcessing.translationOllamaModel)
+            } catch {
+                NSLog("Parrot: local translation model — \(error.localizedDescription)")
+            }
+        }
+    }
+
+    static func unloadAfterLocalTranslation() {
+        guard FeatureProcessing.translation == .local else { return }
+        shared.unload()
+    }
+
     func rewrite(_ text: String, instruction: String, model id: String) async throws -> String {
         let box = try await load(id)
         let chat: [Chat.Message] = [
@@ -145,35 +178,45 @@ final class LocalTextModel {
         guard LocalTextCatalog.isSupported else { throw ModelError.unsupported }
         guard let entry = LocalTextCatalog.entry(id: id) else { throw ModelError.unknownID(id) }
         if let container, loadedID == id { return container }
+        if let inFlight, inFlight.id == id {
+            return try await inFlight.task.value
+        }
 
         loadGeneration += 1
         let generation = loadGeneration
         let installed = Self.isInstalled(id)
         state = installed ? .loading : .downloading(0)
-        do {
-            let box = try await LLMModelFactory.shared.loadContainer(
-                configuration: entry.configuration
-            ) { [weak self] progress in
-                let fraction = min(max(progress.fractionCompleted, 0), 1)
-                Task { @MainActor in
-                    guard let self, self.loadGeneration == generation else { return }
-                    if case .downloading = self.state {
-                        self.state = .downloading(fraction)
+        let task = Task<ModelContainer, Error> { @MainActor in
+            do {
+                let box = try await LLMModelFactory.shared.loadContainer(
+                    configuration: entry.configuration
+                ) { [weak self] progress in
+                    let fraction = min(max(progress.fractionCompleted, 0), 1)
+                    Task { @MainActor in
+                        guard let self, self.loadGeneration == generation else { return }
+                        if case .downloading = self.state {
+                            self.state = .downloading(fraction)
+                        }
                     }
                 }
+                guard self.loadGeneration == generation else { throw CancellationError() }
+                self.container = box
+                self.loadedID = id
+                self.state = .ready
+                return box
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                if self.loadGeneration == generation {
+                    self.state = .failed(error.localizedDescription)
+                }
+                throw error
             }
-            guard loadGeneration == generation else { throw CancellationError() }
-            container = box
-            loadedID = id
-            state = .ready
-            return box
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            if loadGeneration == generation {
-                state = .failed(error.localizedDescription)
-            }
-            throw error
         }
+        inFlight = (id, task)
+        defer {
+            if inFlight?.id == id { inFlight = nil }
+        }
+        return try await task.value
     }
 }

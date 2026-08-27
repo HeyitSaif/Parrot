@@ -319,14 +319,17 @@ enum TranscriptPolisher {
         try await HybridRefiner.polishTracks(systemPath: systemPath, micPath: micPath, smart: true)
     }
 
-    /// Insert replacements, save, then delete the in-window rows. The hot tail
-    /// (`start >= windowEnd`) is left alone. Returns false if the first save
+    /// Insert replacements, save, then delete rows in `[windowStart, windowEnd)`.
+    /// Earlier windows and the hot tail stay. Returns false if the first save
     /// failed — old rows stay.
     @discardableResult
     static func applyWindow(_ polished: [PolishedSegment], to meeting: Meeting,
-                            windowEnd: Double, context: ModelContext) -> Bool {
+                            windowStart: Double = 0, windowEnd: Double,
+                            context: ModelContext) -> Bool {
         guard !polished.isEmpty else { return true }
-        let old = meeting.segments.filter { $0.startTime < windowEnd }
+        let old = meeting.segments.filter {
+            $0.startTime >= windowStart && $0.startTime < windowEnd
+        }
         var created: [TranscriptSegment] = []
         for s in polished {
             let segment = TranscriptSegment(

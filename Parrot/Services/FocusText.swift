@@ -34,10 +34,16 @@ enum FocusText {
         return text
     }
 
-    /// Copy always, then replace the focused selection (or paste at the caret).
+    static var autoPasteEnabled: Bool {
+        UserDefaults.standard.object(forKey: FeatureProcessing.autoPasteKey) as? Bool ?? true
+    }
+
+    /// Copy always. When auto-paste is on, replace the focused selection
+    /// (or synthesize ⌘V) so the words land in the field the user is in.
     @discardableResult
     static func deliver(_ text: String) -> Delivery {
         ClipboardOut.copy(text)
+        guard autoPasteEnabled else { return .copied }
         _ = ensureTrusted()
         if replaceSelection(text) { return .inserted }
         if pasteCommand() { return .inserted }

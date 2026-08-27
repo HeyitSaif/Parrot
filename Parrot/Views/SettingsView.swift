@@ -6,7 +6,10 @@ import UniformTypeIdentifiers
 /// page on the right. Content rules: controls at body size, hints one line at
 /// secondary size — long explanations live in the control's own label instead.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, recording, transcription, copilot, apiKeys, knowledge, profiles
+    case general, recording, create, transcription, copilot, apiKeys, knowledge, profiles
+
+    /// Set before opening Settings so the Create page is selected.
+    static var pending: SettingsSection?
 
     var id: String { rawValue }
 
@@ -14,6 +17,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .recording: "Recording"
+        case .create: "Create"
         case .transcription: "Transcription"
         case .copilot: "Copilot"
         case .apiKeys: "API Keys"
@@ -26,6 +30,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .recording: "mic"
+        case .create: "keyboard"
         case .transcription: "text.quote"
         case .copilot: "sparkles"
         case .apiKeys: "key"
@@ -72,6 +77,7 @@ struct SettingsView: View {
     @AppStorage(FeatureProcessing.cloudVendorKey) private var cloudVendor = CloudVendor.gemini.rawValue
     @AppStorage(FeatureProcessing.refineIntervalKey) private var refineInterval = 120.0
     @AppStorage(FeatureProcessing.showBarKey) private var showProcessingBar = true
+    @AppStorage(FeatureProcessing.autoPasteKey) private var autoPaste = true
     @AppStorage(FeatureProcessing.appleTranslationKey) private var useAppleTranslation = false
     @State private var section: SettingsSection = .general
     @State private var diarizerDownloading = false
@@ -104,6 +110,7 @@ struct SettingsView: View {
             + "\(copilotPace)|\(copilotWindow)|\(livePreview)|\(callMode)|\(polishMode)|"
             + "\(translationMode)|\(dictationMode)|"
             + "\(cloudVendor)|\(refineInterval)|\(useAppleTranslation)|\(translationOllamaModel)|"
+            + "\(showProcessingBar)|\(autoPaste)|"
             + "\(recordingManager.translationStore.targetCode)"
     }
 
@@ -151,6 +158,7 @@ struct SettingsView: View {
                 switch section {
                 case .general: generalPage
                 case .recording: recordingPage
+                case .create: createPage
                 case .transcription: transcriptionPage
                 case .copilot: copilotPage
                 case .apiKeys: apiKeysPage
@@ -162,8 +170,14 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: settingsFingerprint) { flashSavedToast() }
+        .onAppear {
+            if let pending = SettingsSection.pending {
+                section = pending
+                SettingsSection.pending = nil
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .parrotShowTranscriptionSettings)) { _ in
-            section = .transcription
+            section = .create
         }
         .overlay(alignment: .bottom) {
             if showSavedToast {
@@ -258,6 +272,54 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Create & key bindings
+
+    private var createPage: some View {
+        Form {
+            Section("Floating bar") {
+                Toggle("Show floating bar", isOn: $showProcessingBar)
+                    .onChange(of: showProcessingBar) { _, show in
+                        ProcessingBarController.shared.setVisible(show)
+                    }
+                Hint("A pill at the bottom of every screen. Click the mic for hands-free dictation.")
+            }
+
+            Section("Auto-paste") {
+                Toggle("Auto-paste into the focused field", isOn: $autoPaste)
+                Hint("When a dictation or transform finishes, insert the text where the cursor is. Off copies only.")
+                if !FocusText.isTrusted {
+                    Button("Allow Accessibility so Parrot can type into the focused field") {
+                        _ = FocusText.ensureTrusted()
+                    }
+                    .buttonStyle(.link)
+                }
+            }
+
+            Section("Key Bindings") {
+                HotkeyRecorderRow(title: "Press and hold to dictate", slot: .dictationHold)
+                Hint("Hold to speak. Release to transcribe and paste into the focused field.")
+                HotkeyRecorderRow(title: "Hands-free dictation", slot: .dictation)
+                Hint("Press once to start, press again to stop and paste. Same idea as Wispr Flow.")
+                HotkeyRecorderRow(title: "Paste last transcript", slot: .pasteLast)
+                Hint("Re-inserts the last dictation into the focused field.")
+            }
+
+            Section("Transforms") {
+                HotkeyRecorderRow(title: "Transform — local", slot: .transformLocal)
+                HotkeyRecorderRow(title: "Transform — cloud", slot: .transformCloud)
+                Hint("Rewrites the selected text, or the clipboard if nothing is selected. Unbound until you record a shortcut.")
+                Picker("Default transform", selection: Binding(
+                    get: { recordingManager.transforms.itemID },
+                    set: { recordingManager.transforms.itemID = $0 }
+                )) {
+                    ForEach(TransformCatalog.all()) { item in
+                        Text(item.name).tag(item.id)
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Transcription
 
     private var transcriptionPage: some View {
@@ -295,6 +357,9 @@ struct SettingsView: View {
                         Text("Gemini").tag(CloudVendor.gemini.rawValue)
                         Text("Groq").tag(CloudVendor.groq.rawValue)
                         Text("Custom server").tag(CloudVendor.custom.rawValue)
+                    }
+                    if cloudVendor == CloudVendor.custom.rawValue {
+                        Hint("Custom is for text transforms only. Call, Polish, and Dictation Hybrid/Cloud need Gemini or Groq.")
                     }
                     if callMode != ProcessingMode.local.rawValue {
                         Picker("Refine window", selection: $refineInterval) {
@@ -339,26 +404,6 @@ struct SettingsView: View {
                     Button("Open API Keys") { section = .apiKeys }
                         .buttonStyle(.link)
                 }
-            }
-
-            Section("Dictation & transforms") {
-                    Toggle("Show floating bar", isOn: $showProcessingBar)
-                        .onChange(of: showProcessingBar) { _, show in
-                            ProcessingBarController.shared.setVisible(show)
-                        }
-                    Hint("A pill at the bottom of the screen. Click a shortcut row, then hold a modifier and a key. Escape cancels. Dictation lands in the field you are typing in when Accessibility is allowed.")
-                    HotkeyRecorderRow(title: "Dictation", slot: .dictation)
-                    HotkeyRecorderRow(title: "Transform — local", slot: .transformLocal)
-                    HotkeyRecorderRow(title: "Transform — cloud", slot: .transformCloud)
-                    Hint("Transforms are Local vs Cloud only. Unbound until you record a shortcut.")
-                    Picker("Default transform", selection: Binding(
-                        get: { recordingManager.transforms.itemID },
-                        set: { recordingManager.transforms.itemID = $0 }
-                    )) {
-                        ForEach(TransformCatalog.all()) { item in
-                            Text(item.name).tag(item.id)
-                        }
-                    }
             }
 
             Section {

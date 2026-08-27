@@ -20,7 +20,7 @@ final class DictationController {
             case .listening: "Listening…"
             case .working: "Transcribing…"
             case .copied: "Copied — press ⌘V"
-            case .inserted: "In the field"
+            case .inserted: "Pasted"
             case .refinedReady: "Refined copy ready — press ⌘V again"
             case .failed(let message): message
             }
@@ -36,24 +36,79 @@ final class DictationController {
     private var hideTask: Task<Void, Never>?
     /// On-device file transcribe. Set from RecordingManager so we reuse WhisperKit.
     var transcribeLocal: ((URL) async throws -> String)?
+    /// Call capture already owns the mic — dictation must wait.
+    var isCallRecording: () -> Bool = { false }
     weak var modelContext: ModelContext?
     private var lastSaved: DictationNote?
+    private var lastTranscript: String?
+    private var session: Session = .none
+
+    private enum Session {
+        case none
+        case hold
+        case handsFree
+    }
 
     var isActive: Bool {
         if case .idle = phase { return false }
         return true
     }
 
-    func toggle() {
+    var isHolding: Bool { session == .hold }
+
+    func toggle() { toggleHandsFree() }
+
+    /// Wispr Flow hands-free: press once to listen, press again to stop and paste.
+    func toggleHandsFree() {
         switch phase {
         case .listening:
+            session = .none
             Task { await stopAndTranscribe() }
+        case .working:
+            return
         default:
+            session = .handsFree
             start()
         }
     }
 
+    /// Wispr Flow push-to-talk: hold to listen, release to stop and paste.
+    func beginHold() {
+        if case .working = phase { return }
+        if case .listening = phase { return }
+        session = .hold
+        start()
+    }
+
+    func endHold() {
+        guard session == .hold, case .listening = phase else { return }
+        session = .none
+        Task { await stopAndTranscribe() }
+    }
+
+    func pasteLast() {
+        let text = (lastTranscript ?? lastSaved?.text ?? storedLast())?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !text.isEmpty else {
+            phase = .failed("Nothing to paste yet.")
+            scheduleHide()
+            return
+        }
+        phase = FocusText.deliver(text) == .inserted ? .inserted : .copied
+        scheduleHide()
+    }
+
+    private func storedLast() -> String? {
+        UserDefaults.standard.string(forKey: FeatureProcessing.lastDictationKey)
+    }
+
     private func start() {
+        if isCallRecording() {
+            session = .none
+            phase = .failed("Dictation waits until the call stops — the mic is in the meeting.")
+            scheduleHide()
+            return
+        }
         guard recorder == nil else { return }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("parrot-dictation-\(UUID().uuidString).caf")
@@ -74,6 +129,7 @@ final class DictationController {
             lastSaved = nil
             phase = .listening
         } catch {
+            session = .none
             phase = .failed("Couldn't start dictation — \(error.localizedDescription)")
             scheduleHide()
         }
@@ -143,7 +199,10 @@ final class DictationController {
 
     private func persist(text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let modelContext else { return }
+        guard !trimmed.isEmpty else { return }
+        lastTranscript = trimmed
+        UserDefaults.standard.set(trimmed, forKey: FeatureProcessing.lastDictationKey)
+        guard let modelContext else { return }
         let duration = Date.now.timeIntervalSince(startedAt ?? .now)
         if let lastSaved {
             lastSaved.text = trimmed

@@ -93,6 +93,9 @@ enum FeatureProcessing {
     static let appleReadyKey = "appleTranslationReadyPairs"
     static let appleDeclinedKey = "appleTranslationDeclinedPairs"
     static let showBarKey = "showProcessingBar"
+    /// When on, finished dictation (and transforms) insert into the focused field.
+    static let autoPasteKey = "dictationAutoPaste"
+    static let lastDictationKey = "lastDictationTranscript"
 
     static var call: ProcessingMode { resolved(callModeKey) }
     static var polish: ProcessingMode { resolved(polishModeKey, polishLegacy: true) }
@@ -103,7 +106,8 @@ enum FeatureProcessing {
     static var translationOllamaModel: String {
         let stored = UserDefaults.standard.string(forKey: translationOllamaModelKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return stored.isEmpty ? translationOllamaDefault : stored
+        if LocalTextCatalog.entry(id: stored) != nil { return stored }
+        return translationOllamaDefault
     }
 
     static func resolved(_ key: String, polishLegacy: Bool = false) -> ProcessingMode {

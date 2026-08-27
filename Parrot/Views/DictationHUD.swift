@@ -34,22 +34,39 @@ struct ProcessingBarView: View {
         return recordingManager.transforms.phase.hud
     }
 
+    private var idleHint: String {
+        if let hold = HotkeyBinding.load(key: HotkeySlot.dictationHold.defaultsKey) {
+            return "Hold \(hold.display)"
+        }
+        if let tap = HotkeyBinding.load(key: HotkeySlot.dictation.defaultsKey) {
+            return tap.display
+        }
+        return ""
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             Button {
-                recordingManager.dictation.toggle()
+                recordingManager.dictation.toggleHandsFree()
             } label: {
-                Image(systemName: listening ? "waveform" : "mic.fill")
+                Image(systemName: listening
+                      ? (recordingManager.dictation.isHolding ? "waveform" : "stop.fill")
+                      : "mic.fill")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(listening ? Theme.Colors.stop : Theme.Colors.ink)
             }
             .buttonStyle(.plain)
-            .help("Dictate")
+            .help(listening ? "Stop and paste" : "Hands-free dictation")
 
             if !status.isEmpty {
                 Text(status)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Colors.ink2)
+                    .lineLimit(1)
+            } else if !idleHint.isEmpty {
+                Text(idleHint)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Colors.ink3)
                     .lineLimit(1)
             }
         }
@@ -60,11 +77,18 @@ struct ProcessingBarView: View {
         .onChange(of: status) {
             ProcessingBarController.shared.fitSize()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .parrotHotkeysChanged)) { _ in
+            ProcessingBarController.shared.fitSize()
+        }
         .contextMenu {
             Button("Settings…") {
+                SettingsSection.pending = .create
                 NotificationCenter.default.post(name: .parrotShowTranscriptionSettings, object: nil)
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+            Button("Paste last transcript") {
+                recordingManager.dictation.pasteLast()
             }
             Button("Hide bar") { ProcessingBarController.shared.setVisible(false) }
         }
@@ -96,6 +120,10 @@ struct HotkeyRecorderRow: View {
                 Text(notice)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Colors.warn)
+            } else if HotkeyCenter.shared.failedSlots.contains(slot) {
+                Text("Couldn't register — another app may own it.")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Colors.warn)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .parrotHotkeysChanged)) { _ in }
@@ -123,21 +151,23 @@ struct HotkeyChip: View {
         .onReceive(NotificationCenter.default.publisher(for: .parrotHotkeysChanged)) { _ in
             stamp += 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .parrotHotkeyListen)) { note in
+            if let other = note.object as? UInt32, other != slot.rawValue {
+                stopListening()
+            }
+        }
         .id(stamp)
     }
 
     private var label: String {
-        switch slot {
-        case .dictation: "Click to set"
-        case .transformLocal: "Click to set"
-        case .transformCloud: "Click to set"
-        }
+        "Click to set"
     }
 
     private func startListening() {
         guard !listening else { return }
         listening = true
         onNotice(nil)
+        NotificationCenter.default.post(name: .parrotHotkeyListen, object: slot.rawValue)
         let handle: (NSEvent) -> Void = { event in
             if event.keyCode == UInt16(kVK_Escape) {
                 stopListening()
@@ -145,7 +175,7 @@ struct HotkeyChip: View {
             }
             guard let binding = HotkeyBinding.from(event: event) else { return }
             if binding.isReserved {
-                onNotice("That shortcut belongs to the app (⌘Q, ⌘W, ⌘V).")
+                onNotice("That shortcut belongs to the app (⌘Q, ⌘W, ⌘V, ⌘Space, ⌘Tab).")
                 stopListening()
                 return
             }
@@ -264,6 +294,6 @@ final class ProcessingBarController {
     }
 
     private func originIsOnScreen(_ origin: NSPoint) -> Bool {
-        NSScreen.screens.contains { $0.visibleFrame.insetBy(dx: -40, dy: -40).contains(origin) }
+        NSScreen.screens.contains { $0.visibleFrame.contains(origin) }
     }
 }

@@ -202,7 +202,7 @@ struct LocalTextModelStatusView: View {
                 if LocalTextModel.isInstalled(modelID) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Theme.Colors.good)
-                    Text("Downloaded — tap Load to keep it in memory.")
+                    Text("Downloaded — Local translation loads it when a session starts.")
                         .foregroundStyle(Theme.Colors.ink2)
                     Button("Load") { Task { await engine.download(modelID) } }
                         .controlSize(.small)
@@ -238,7 +238,7 @@ struct LocalTextModelStatusView: View {
             case .ready:
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Theme.Colors.good)
-                Text("Ready — runs in Parrot like Whisper.")
+                Text("Ready — unloads when the Local translation pass finishes.")
                     .foregroundStyle(Theme.Colors.ink2)
             case .failed(let message):
                 Image(systemName: "exclamationmark.triangle.fill")

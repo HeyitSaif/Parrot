@@ -217,8 +217,9 @@ final class GeminiLiveStreamer: LiveAudioStreamer {
     }
 
     private func receiveLoop() {
-        task?.receive { [weak self] result in
-            guard let self, !self.closing || self.task != nil else { return }
+        guard let socket = task else { return }
+        socket.receive { [weak self] result in
+            guard let self, self.task === socket else { return }
             switch result {
             case .failure(let error):
                 if !self.closing { self.fail(error.localizedDescription) }
@@ -383,7 +384,8 @@ private final class PostCallTranslateSession {
                 ] as [String: Any],
             ] as [String: Any],
         ])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 90) { [weak self] in
+        let cap = min(180, max(90, Double(samples.count) / 16000 + 30))
+        DispatchQueue.main.asyncAfter(deadline: .now() + cap) { [weak self] in
             self?.complete(.success(self?.utterances ?? []))
         }
     }
@@ -417,10 +419,9 @@ private final class PostCallTranslateSession {
             pumpAudio()
         }
         if let text = event.output ?? event.finalText {
-            let start = Double(utteranceStart) / 16000
-            let end = Double(max(samplesSent, utteranceStart + 1)) / 16000
-            utterances.append((text, start, max(end, start + 0.2)))
-            utteranceStart = samplesSent
+            // Untimed: pumpAudio is faster than realtime, so clocked stamps
+            // collapse and fail the overlap assigner. Zip by order instead.
+            utterances.append((text, 0, 0))
         }
     }
 

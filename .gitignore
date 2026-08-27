@@ -43,3 +43,8 @@ dist/
 # login Keychain, with a backup in the user's password manager.
 *private-key*.txt
 temp
+
+# Local env / API keys — never commit
+.env
+.env.*
+!.env.example

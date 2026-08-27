@@ -329,7 +329,7 @@ final class HybridRefiner {
         guard !polished.isEmpty else { return }
         billedSeconds += (end - start) * Double(polished.map(\.speaker).uniqued().count)
         TranscriptPolisher.applyWindow(
-            polished, to: meeting, windowEnd: end, context: context)
+            polished, to: meeting, windowStart: start, windowEnd: end, context: context)
     }
 
     /// Full-track polish after Stop (Cloud polish mode, or Hybrid remainder).
