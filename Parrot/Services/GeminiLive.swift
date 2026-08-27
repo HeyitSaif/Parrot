@@ -70,7 +70,9 @@ enum TranslationAssigner {
             var best: (Int, Double)?
             for (i, segment) in segments.enumerated() where !used.contains(i) {
                 let overlap = min(item.end, segment.end) - max(item.start, segment.start)
-                if overlap > 0, best == nil || overlap > best!.1 {
+                let span = max(segment.end - segment.start, 0.01)
+                let needed = max(0.5, 0.3 * span)
+                if overlap >= needed, best == nil || overlap > best!.1 {
                     best = (i, overlap)
                 }
             }

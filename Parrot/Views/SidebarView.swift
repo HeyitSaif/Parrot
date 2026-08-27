@@ -46,13 +46,23 @@ struct SidebarView: View {
                     showTransforms = false
                     showTranslate = false
                 }
-                NavRow(title: "New recording", icon: "mic.circle", selected: false) {
-                    showDashboard = true
-                    selectedMeeting = nil
-                    showSettings = false
-                    showDictations = false
-                    showTransforms = false
-                    showTranslate = false
+                if recordingManager.isRecording {
+                    NavRow(
+                        title: "Live recording",
+                        icon: "record.circle",
+                        selected: isShowingLiveCall
+                    ) {
+                        openLiveCall()
+                    }
+                } else {
+                    NavRow(title: "New recording", icon: "mic.circle", selected: false) {
+                        showDashboard = true
+                        selectedMeeting = nil
+                        showSettings = false
+                        showDictations = false
+                        showTransforms = false
+                        showTranslate = false
+                    }
                 }
                 NavRow(title: "Translate", icon: "globe", selected: showTranslate) {
                     showTranslate = true
@@ -145,6 +155,27 @@ struct SidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .parrotFocusSearch)) { _ in
             searchFocused = true
         }
+    }
+
+    private var isShowingLiveCall: Bool {
+        MainDetailPane.resolve(
+            isRecording: recordingManager.isRecording,
+            showTranslate: showTranslate,
+            showDictations: showDictations,
+            showTransforms: showTransforms,
+            showSettings: showSettings,
+            showDashboard: showDashboard,
+            hasMeeting: selectedMeeting != nil
+        ) == .live
+    }
+
+    private func openLiveCall() {
+        showSettings = false
+        showDictations = false
+        showTransforms = false
+        showTranslate = false
+        selectedMeeting = nil
+        showDashboard = false
     }
 
     // Group by day label, ordered most-recent-first (meetings already sorted desc).

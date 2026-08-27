@@ -110,7 +110,7 @@ enum TextRewriter {
     static let localChatURL = URL(string: "http://localhost:11434/v1/chat/completions")!
     /// Shown when localhost:11434 is down. Whisper downloads do not count.
     static let ollamaUnavailableMessage =
-        "Download a translation model in Settings → Translation — same as Whisper. A speech model cannot translate."
+        "Local transforms need Ollama running on this Mac (localhost:11434)."
 
     static func wordCount(_ text: String) -> Int {
         text.split { $0.isWhitespace || $0.isNewline }.count

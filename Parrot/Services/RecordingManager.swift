@@ -696,8 +696,8 @@ final class RecordingManager {
         try? modelContext?.save()
     }
 
-    /// Translate every spoken line in-app (MLX / Whisper / Apple). Safe to run
-    /// again from the meeting tab.
+    /// Translate every spoken line with the Translation mode: local model,
+    /// then Gemini on Hybrid / Cloud. Safe to run again from the meeting tab.
     func translateTranscript(meeting: Meeting, replaceExisting: Bool = false) async {
         guard translatingMeetingID == nil else { return }
         translatingMeetingID = meeting.id
@@ -712,6 +712,13 @@ final class RecordingManager {
         let instruction = "Translate the following into \(name) (\(target)). Reply with only the translation. Do not use any other language."
         let mode = FeatureProcessing.translation
         var skipLocal = false
+        let polishAfter = TranslationRouting.usesGemini(mode)
+            && CloudVendor.selected == .gemini
+            && meetingHasAudio(meeting)
+        var destinations = TranslationRouting.destinations(for: mode)
+        if polishAfter {
+            destinations.removeAll { $0 == .cloud }
+        }
 
         for segment in meeting.sortedSegments {
             let source = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -721,9 +728,8 @@ final class RecordingManager {
                 continue
             }
             if !replaceExisting, !segment.translation.isEmpty { continue }
-            for destination in TranslationRouting.destinations(for: mode) {
+            for destination in destinations {
                 if destination == .local, skipLocal { continue }
-                if destination == .cloud, !TranslationRouting.usesGemini(mode) { continue }
                 do {
                     let out = try await TextRewriter.rewrite(
                         source, instruction: instruction, destination: destination,
@@ -741,10 +747,53 @@ final class RecordingManager {
                         continue
                     }
                     transcriptTranslateNotice = error.localizedDescription
-                    try? modelContext?.save()
-                    return
+                    continue
                 }
             }
+        }
+        try? modelContext?.save()
+
+        if polishAfter {
+            await polishTranslation(meeting: meeting, target: target, replaceExisting: replaceExisting)
+        }
+    }
+
+    private func meetingHasAudio(_ meeting: Meeting) -> Bool {
+        [meeting.systemAudioPath.nilIfEmpty, meeting.micAudioPath?.nilIfEmpty]
+            .compactMap { $0 }
+            .contains { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    /// After the spoken transcript is final, re-translate the saved audio
+    /// with `gemini-3.5-live-translate-preview`. Failure keeps live lines.
+    private func polishTranslation(meeting: Meeting, target: String, replaceExisting: Bool) async {
+        guard TranslationRouting.usesGemini(FeatureProcessing.translation) else { return }
+        guard CloudVendor.selected == .gemini else { return }
+        guard let key = CloudVendor.gemini.speechKey() else { return }
+        let code = TranslationLanguage(rawValue: target)?.bcp47 ?? target
+        var utterances: [(text: String, start: Double, end: Double)] = []
+        do {
+            for path in [meeting.systemAudioPath.nilIfEmpty, meeting.micAudioPath?.nilIfEmpty].compactMap({ $0 }) {
+                let url = URL(fileURLWithPath: path)
+                let samples = try AudioFileLoader.load16kMono(url: url)
+                guard !samples.isEmpty else { continue }
+                let rows = try await GeminiLiveTranslator.translateTrack(
+                    samples: samples, targetBCP47: code, apiKey: key)
+                utterances.append(contentsOf: rows)
+            }
+        } catch {
+            NSLog("Parrot: post-call translation failed — \(error.localizedDescription)")
+            translationStore.notice = "Post-call translation failed — live lines kept"
+            return
+        }
+        guard !utterances.isEmpty else { return }
+        let segments = meeting.sortedSegments
+        let assigned = TranslationAssigner.apply(
+            translations: utterances.map { ($0.start, $0.end, $0.text) },
+            segments: segments.map { ($0.startTime, $0.endTime) })
+        for (index, text) in assigned where !text.isEmpty {
+            if !replaceExisting, !segments[index].translation.isEmpty { continue }
+            segments[index].translation = text
         }
         try? modelContext?.save()
     }

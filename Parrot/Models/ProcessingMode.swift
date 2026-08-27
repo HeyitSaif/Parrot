@@ -96,9 +96,7 @@ enum FeatureProcessing {
 
     static var call: ProcessingMode { resolved(callModeKey) }
     static var polish: ProcessingMode { resolved(polishModeKey, polishLegacy: true) }
-    /// Translation always stays in the app (Whisper / Apple / MLX). Cloud
-    /// and Hybrid modes do not apply.
-    static var translation: ProcessingMode { .local }
+    static var translation: ProcessingMode { resolved(translationModeKey) }
     static var dictation: ProcessingMode { resolved(dictationModeKey) }
 
     /// Local / Hybrid translation text model. Separate from Copilot's Ollama pick.
@@ -141,13 +139,17 @@ enum FeatureProcessing {
     static let refineOverlap: TimeInterval = 5
 }
 
-/// Translation never leaves the process. Mode is ignored.
+/// Local = in-app model. Hybrid = that model, then Gemini. Cloud = Gemini only.
 enum TranslationRouting {
     static func destinations(for mode: ProcessingMode) -> [TextRewriter.Destination] {
-        [.local]
+        switch mode {
+        case .local: [.local]
+        case .hybrid: [.local, .cloud]
+        case .cloud: [.cloud]
+        }
     }
 
     static func usesGemini(_ mode: ProcessingMode) -> Bool {
-        false
+        mode.runsCloudModel
     }
 }

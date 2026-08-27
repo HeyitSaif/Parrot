@@ -151,7 +151,7 @@ enum LocalTranslation {
         if whisperTranslatesToEnglish(target) {
             return TextRewriter.ollamaUnavailableMessage
         }
-        return "Whisper only translates speech into English. For other languages, download the translation model in Settings (same as Whisper) or an Apple pack. Translation never leaves the app."
+        return "Whisper only translates speech into English. For other languages, download the translation model in Settings (same as Whisper) or an Apple pack, or use Hybrid / Cloud with a Gemini key."
     }
 }
 

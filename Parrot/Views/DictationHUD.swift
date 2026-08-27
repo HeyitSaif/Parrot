@@ -57,10 +57,15 @@ struct ProcessingBarView: View {
         .padding(.vertical, 6)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(Theme.Colors.line))
+        .onChange(of: status) {
+            ProcessingBarController.shared.fitSize()
+        }
         .contextMenu {
-            HotkeyChip(slot: .dictation)
-            HotkeyChip(slot: .transformLocal)
-            HotkeyChip(slot: .transformCloud)
+            Button("Settings…") {
+                NotificationCenter.default.post(name: .parrotShowTranscriptionSettings, object: nil)
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
             Button("Hide bar") { ProcessingBarController.shared.setVisible(false) }
         }
     }
@@ -69,19 +74,39 @@ struct ProcessingBarView: View {
 struct HotkeyRecorderRow: View {
     let title: String
     let slot: HotkeySlot
+    @State private var notice: String?
 
     var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            HotkeyChip(slot: slot)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                HotkeyChip(slot: slot) { notice = $0 }
+                if HotkeyBinding.load(key: slot.defaultsKey) != nil {
+                    Button("Clear") {
+                        HotkeyBinding.clear(key: slot.defaultsKey)
+                        HotkeyCenter.shared.reload()
+                        notice = nil
+                    }
+                    .buttonStyle(.link)
+                    .font(Theme.Typography.secondary)
+                }
+            }
+            if let notice {
+                Text(notice)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Colors.warn)
+            }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .parrotHotkeysChanged)) { _ in }
     }
 }
 
 struct HotkeyChip: View {
     let slot: HotkeySlot
+    var onNotice: (String?) -> Void = { _ in }
     @State private var listening = false
+    @State private var stamp = 0
     @State private var localMonitor: Any?
     @State private var globalMonitor: Any?
 
@@ -92,37 +117,47 @@ struct HotkeyChip: View {
         .buttonStyle(.plain)
         .font(Theme.Typography.mono(11))
         .foregroundStyle(listening ? Theme.Colors.accent : Theme.Colors.ink2)
-        .help("Click, then hold a modifier and a key. Escape cancels. Right-click clears.")
+        .help("Click, then hold a modifier and a key. Function keys work alone. Escape cancels.")
         .onExitCommand { stopListening() }
-        .contextMenu {
-            Button("Clear shortcut") {
-                HotkeyBinding.clear(key: slot.defaultsKey)
-                HotkeyCenter.shared.reload()
-            }
+        .onDisappear { stopListening() }
+        .onReceive(NotificationCenter.default.publisher(for: .parrotHotkeysChanged)) { _ in
+            stamp += 1
         }
+        .id(stamp)
     }
 
     private var label: String {
         switch slot {
-        case .dictation: "Dictation key"
-        case .transformLocal: "Local key"
-        case .transformCloud: "Cloud key"
+        case .dictation: "Click to set"
+        case .transformLocal: "Click to set"
+        case .transformCloud: "Click to set"
         }
     }
 
     private func startListening() {
         guard !listening else { return }
         listening = true
+        onNotice(nil)
         let handle: (NSEvent) -> Void = { event in
             if event.keyCode == UInt16(kVK_Escape) {
                 stopListening()
                 return
             }
-            if let binding = HotkeyBinding.from(event: event) {
-                binding.save(key: slot.defaultsKey)
-                HotkeyCenter.shared.reload()
+            guard let binding = HotkeyBinding.from(event: event) else { return }
+            if binding.isReserved {
+                onNotice("That shortcut belongs to the app (⌘Q, ⌘W, ⌘V).")
                 stopListening()
+                return
             }
+            if let other = HotkeyBinding.slot(using: binding, excluding: slot) {
+                onNotice("Already used for \(other.label).")
+                stopListening()
+                return
+            }
+            binding.save(key: slot.defaultsKey)
+            HotkeyCenter.shared.reload()
+            onNotice(nil)
+            stopListening()
         }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             handle(event)
@@ -145,9 +180,11 @@ struct HotkeyChip: View {
 @MainActor
 final class ProcessingBarController {
     static let shared = ProcessingBarController()
+    private static let originKey = "processingBarOrigin"
 
     private var panel: NSPanel?
     private var host: NSHostingView<AnyView>?
+    private var moveObserver: NSObjectProtocol?
 
     func attach(manager: RecordingManager) {
         if panel == nil {
@@ -173,6 +210,11 @@ final class ProcessingBarController {
             panel.isMovableByWindowBackground = true
             panel.contentView = host
             self.panel = panel
+            moveObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didMoveNotification, object: panel, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.saveOrigin() }
+            }
         }
         syncVisibility()
     }
@@ -182,14 +224,21 @@ final class ProcessingBarController {
         syncVisibility()
     }
 
+    func fitSize() {
+        guard let panel else { return }
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let size = host?.fittingSize ?? NSSize(width: 72, height: 28)
+        panel.setContentSize(NSSize(width: max(size.width, 56), height: max(size.height, 28)))
+    }
+
     func syncVisibility() {
         let show = UserDefaults.standard.object(forKey: FeatureProcessing.showBarKey) as? Bool ?? true
         guard let panel else { return }
         if show {
-            panel.contentView?.layoutSubtreeIfNeeded()
-            let size = host?.fittingSize ?? NSSize(width: 72, height: 28)
-            panel.setContentSize(NSSize(width: max(size.width, 56), height: max(size.height, 28)))
-            if let screen = NSScreen.main {
+            fitSize()
+            if let saved = savedOrigin(), originIsOnScreen(saved) {
+                panel.setFrameOrigin(saved)
+            } else if let screen = NSScreen.main {
                 let visible = screen.visibleFrame
                 let x = visible.midX - panel.frame.width / 2
                 let y = visible.minY + 12
@@ -199,5 +248,22 @@ final class ProcessingBarController {
         } else {
             panel.orderOut(nil)
         }
+    }
+
+    private func saveOrigin() {
+        guard let panel else { return }
+        UserDefaults.standard.set(
+            [panel.frame.origin.x, panel.frame.origin.y], forKey: Self.originKey)
+    }
+
+    private func savedOrigin() -> NSPoint? {
+        let pair = UserDefaults.standard.array(forKey: Self.originKey) as? [CGFloat]
+            ?? (UserDefaults.standard.array(forKey: Self.originKey) as? [Double])?.map { CGFloat($0) }
+        guard let pair, pair.count == 2 else { return nil }
+        return NSPoint(x: pair[0], y: pair[1])
+    }
+
+    private func originIsOnScreen(_ origin: NSPoint) -> Bool {
+        NSScreen.screens.contains { $0.visibleFrame.insetBy(dx: -40, dy: -40).contains(origin) }
     }
 }

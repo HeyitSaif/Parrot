@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import SwiftData
+import Carbon.HIToolbox
 
 /// Offscreen logic harness. Run: `.build/debug/Parrot --profile-test`
 /// Prints PASS/FAIL per check and exits non-zero on any failure.
@@ -45,6 +46,7 @@ enum ProfileTest {
         testDrainTimeout()
         testRangedAudioRead()
         testClipboardAndTransforms()
+        testMainDetailPane()
         testPolishReplaceKeepsTail()
         print(failures == 0 ? "ALL PASS" : "FAILURES: \(failures)")
         exit(failures == 0 ? 0 : 1)
@@ -912,10 +914,9 @@ enum ProfileTest {
               FocusText.resolveSource(selected: "  ", clipboard: "bye") == "bye")
         check("both empty is nil", FocusText.resolveSource(selected: nil, clipboard: nil) == nil)
         check("local rewrite stays on localhost", TextRewriter.localChatURL.host == "localhost")
-        check("local miss asks to download like Whisper",
-              TextRewriter.ollamaUnavailableMessage.contains("Download")
-              && TextRewriter.ollamaUnavailableMessage.contains("Whisper")
-              && !TextRewriter.ollamaUnavailableMessage.contains("Ollama")
+        check("local transform miss names Ollama",
+              TextRewriter.ollamaUnavailableMessage.contains("Ollama")
+              && TextRewriter.ollamaUnavailableMessage.contains("11434")
               && TextRewriter.isLocalUnavailable(
                 TextRewriter.RewriteError.notConfigured(TextRewriter.ollamaUnavailableMessage)))
         check("in-process translation catalog has gemma3:1b",
@@ -924,14 +925,15 @@ enum ProfileTest {
         check("local runs local only", ProcessingMode.local.runsLocalModel && !ProcessingMode.local.runsCloudModel)
         check("hybrid runs local then cloud", ProcessingMode.hybrid.runsLocalModel && ProcessingMode.hybrid.runsCloudModel)
         check("cloud skips local", !ProcessingMode.cloud.runsLocalModel && ProcessingMode.cloud.runsCloudModel)
-        check("translation never leaves the app",
+        check("local translation never uses Gemini",
               TranslationRouting.destinations(for: .local) == [.local]
-              && TranslationRouting.destinations(for: .hybrid) == [.local]
-              && TranslationRouting.destinations(for: .cloud) == [.local]
-              && !TranslationRouting.usesGemini(.local)
-              && !TranslationRouting.usesGemini(.hybrid)
-              && !TranslationRouting.usesGemini(.cloud)
-              && FeatureProcessing.translation == .local)
+              && !TranslationRouting.usesGemini(.local))
+        check("hybrid translation is local then Gemini",
+              TranslationRouting.destinations(for: .hybrid) == [.local, .cloud]
+              && TranslationRouting.usesGemini(.hybrid))
+        check("cloud translation is Gemini only",
+              TranslationRouting.destinations(for: .cloud) == [.cloud]
+              && TranslationRouting.usesGemini(.cloud))
         check("new meeting is not a translation recording", Meeting().isTranslationRecording == false)
         check("report tabs include translation next to report",
               ReportTab.allCases.map(\.rawValue) == ["Report", "Translation", "Transcript", "Insights", "Notes"])
@@ -1005,6 +1007,16 @@ enum ProfileTest {
             translations: [(0, 0, "a"), (0, 0, "b")],
             segments: [(0, 1), (1, 2)])
         check("translation assign by order when untimed", zipped[0] == "a" && zipped[1] == "b")
+        let glancing = TranslationAssigner.apply(
+            translations: [(1.99, 2.05, "nope")],
+            segments: [(0, 2)])
+        check("translation assign rejects glancing overlap", glancing[0] == nil)
+        let cmdQ = HotkeyBinding(keyCode: UInt32(kVK_ANSI_Q), carbonModifiers: UInt32(cmdKey))
+        check("⌘Q is reserved", cmdQ.isReserved)
+        check("modifier display is control-option-shift-command",
+              HotkeyBinding(keyCode: UInt32(kVK_ANSI_A),
+                            carbonModifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey))
+                .display.hasPrefix("⌃⌥⇧⌘"))
         check("key sanitizer strips quotes", APIKeyStore.sanitized("\"AIza123\"") == "AIza123")
         check("key sanitizer strips bearer", APIKeyStore.sanitized("Bearer AIza123") == "AIza123")
         let keyErr = """
@@ -1101,5 +1113,57 @@ enum ProfileTest {
         check("polish save succeeded", replaced)
         check("in-window rows replaced", texts.contains("new-a") && !texts.contains("old-a") && !texts.contains("old-b"))
         check("save-failure path keeps tail", texts.contains("tail"))
+    }
+
+    static func testMainDetailPane() {
+        func pane(
+            recording: Bool = false,
+            translate: Bool = false,
+            dictations: Bool = false,
+            transforms: Bool = false,
+            settings: Bool = false,
+            dashboard: Bool = false,
+            meeting: Bool = false
+        ) -> MainDetailPane {
+            MainDetailPane.resolve(
+                isRecording: recording,
+                showTranslate: translate,
+                showDictations: dictations,
+                showTransforms: transforms,
+                showSettings: settings,
+                showDashboard: dashboard,
+                hasMeeting: meeting
+            )
+        }
+        check("idle dashboard", pane(dashboard: true) == .dashboard)
+        check("recording without other nav is live", pane(recording: true) == .live)
+        check("settings wins over live recording",
+              pane(recording: true, settings: true) == .settings)
+        check("dictations win over live recording",
+              pane(recording: true, dictations: true) == .dictations)
+        check("transforms win over live recording",
+              pane(recording: true, transforms: true) == .transforms)
+        check("translate wins over live recording",
+              pane(recording: true, translate: true) == .translate)
+        check("past meeting wins over live recording",
+              pane(recording: true, meeting: true) == .meeting)
+        check("dashboard during recording stays dashboard",
+              pane(recording: true, dashboard: true) == .dashboard)
+        check("start from dashboard opens live",
+              MainDetailPane.shouldOpenLiveOnStart(
+                showTranslate: false, showDictations: false, showTransforms: false,
+                showSettings: false, showDashboard: true, hasMeeting: false))
+        check("start from settings stays put",
+              !MainDetailPane.shouldOpenLiveOnStart(
+                showTranslate: false, showDictations: false, showTransforms: false,
+                showSettings: true, showDashboard: false, hasMeeting: false))
+        check("stop on live reveals meeting",
+              MainDetailPane.shouldRevealMeetingOnStop(
+                showTranslate: false, showDictations: false, showTransforms: false,
+                showSettings: false, showDashboard: false, hasMeeting: false))
+        check("stop on dashboard stays put",
+              !MainDetailPane.shouldRevealMeetingOnStop(
+                showTranslate: false, showDictations: false, showTransforms: false,
+                showSettings: false, showDashboard: true, hasMeeting: false))
     }
 }

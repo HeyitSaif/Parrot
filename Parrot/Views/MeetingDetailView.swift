@@ -438,7 +438,7 @@ struct MeetingDetailView: View {
                 reportGeneratingRow("Translating the transcript…")
                     .padding(.horizontal, Theme.Metrics.pad)
             } else if !hasTranslations {
-                emptyTabState("No translation yet. Translate transcript runs the in-app model over every line.")
+                emptyTabState("No translation yet. Translate transcript runs the selected Local, Hybrid, or Cloud mode over every line.")
             } else {
                 transcriptList
             }

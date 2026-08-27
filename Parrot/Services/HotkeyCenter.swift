@@ -7,12 +7,17 @@ struct HotkeyBinding: Equatable, Codable {
 
     var display: String {
         var parts: [String] = []
-        if carbonModifiers & UInt32(cmdKey) != 0 { parts.append("⌘") }
-        if carbonModifiers & UInt32(optionKey) != 0 { parts.append("⌥") }
         if carbonModifiers & UInt32(controlKey) != 0 { parts.append("⌃") }
+        if carbonModifiers & UInt32(optionKey) != 0 { parts.append("⌥") }
         if carbonModifiers & UInt32(shiftKey) != 0 { parts.append("⇧") }
+        if carbonModifiers & UInt32(cmdKey) != 0 { parts.append("⌘") }
         parts.append(Self.keyName(keyCode))
         return parts.joined()
+    }
+
+    var isReserved: Bool {
+        carbonModifiers == UInt32(cmdKey)
+            && [kVK_ANSI_Q, kVK_ANSI_W, kVK_ANSI_V].contains(Int(keyCode))
     }
 
     static func from(event: NSEvent) -> HotkeyBinding? {
@@ -22,8 +27,20 @@ struct HotkeyBinding: Equatable, Codable {
         if event.modifierFlags.contains(.option) { mods |= UInt32(optionKey) }
         if event.modifierFlags.contains(.control) { mods |= UInt32(controlKey) }
         if event.modifierFlags.contains(.shift) { mods |= UInt32(shiftKey) }
-        guard mods != 0 else { return nil }
-        return HotkeyBinding(keyCode: UInt32(event.keyCode), carbonModifiers: mods)
+        let code = UInt32(event.keyCode)
+        let function: Set<UInt32> = [
+            UInt32(kVK_F1), UInt32(kVK_F2), UInt32(kVK_F3), UInt32(kVK_F4),
+            UInt32(kVK_F5), UInt32(kVK_F6), UInt32(kVK_F7), UInt32(kVK_F8),
+            UInt32(kVK_F9), UInt32(kVK_F10), UInt32(kVK_F11), UInt32(kVK_F12),
+        ]
+        guard mods != 0 || function.contains(code) else { return nil }
+        return HotkeyBinding(keyCode: code, carbonModifiers: mods)
+    }
+
+    static func slot(using binding: HotkeyBinding, excluding: HotkeySlot) -> HotkeySlot? {
+        HotkeySlot.allCases.first {
+            $0 != excluding && load(key: $0.defaultsKey) == binding
+        }
     }
 
     static func load(key: String) -> HotkeyBinding? {
@@ -73,7 +90,27 @@ struct HotkeyBinding: Equatable, Codable {
         case kVK_ANSI_2: "2"
         case kVK_ANSI_3: "3"
         case kVK_ANSI_4: "4"
+        case kVK_ANSI_5: "5"
+        case kVK_ANSI_6: "6"
+        case kVK_ANSI_7: "7"
+        case kVK_ANSI_8: "8"
+        case kVK_ANSI_9: "9"
+        case kVK_ANSI_0: "0"
         case kVK_Space: "Space"
+        case kVK_Return: "Return"
+        case kVK_Tab: "Tab"
+        case kVK_F1: "F1"
+        case kVK_F2: "F2"
+        case kVK_F3: "F3"
+        case kVK_F4: "F4"
+        case kVK_F5: "F5"
+        case kVK_F6: "F6"
+        case kVK_F7: "F7"
+        case kVK_F8: "F8"
+        case kVK_F9: "F9"
+        case kVK_F10: "F10"
+        case kVK_F11: "F11"
+        case kVK_F12: "F12"
         default: "Key \(code)"
         }
     }
@@ -89,6 +126,14 @@ enum HotkeySlot: UInt32, CaseIterable {
         case .dictation: "hotkey.dictation"
         case .transformLocal: "hotkey.transformLocal"
         case .transformCloud: "hotkey.transformCloud"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .dictation: "Dictation"
+        case .transformLocal: "Transform — local"
+        case .transformCloud: "Transform — cloud"
         }
     }
 }

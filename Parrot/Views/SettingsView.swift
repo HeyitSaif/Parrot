@@ -162,6 +162,9 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: settingsFingerprint) { flashSavedToast() }
+        .onReceive(NotificationCenter.default.publisher(for: .parrotShowTranscriptionSettings)) { _ in
+            section = .transcription
+        }
         .overlay(alignment: .bottom) {
             if showSavedToast {
                 Label("Saved", systemImage: "checkmark.circle.fill")
@@ -300,34 +303,42 @@ struct SettingsView: View {
                             Text("180 s").tag(180.0)
                         }
                     }
-                    Picker("Translate into", selection: Binding(
-                        get: { recordingManager.translationStore.targetCode },
-                        set: { recordingManager.setTranslationTarget($0) }
-                    )) {
-                        ForEach(TranslationLanguage.allCases) { language in
-                            Text(language.label).tag(language.rawValue)
-                        }
-                    }
-                    if AppleTranslationGate.isSupported {
-                        Toggle("Apple Translation", isOn: $useAppleTranslation)
-                    }
-                Hint("Call, Polish, and Dictation pick Local / Hybrid / Cloud. Translation always stays in the app.")
-                Hint("Translation downloads into the app like Whisper. No Ollama and no cloud vendor.")
-                Picker("Translation model", selection: $translationOllamaModel) {
-                    ForEach(LocalTextCatalog.models) { entry in
-                        Text(entry.label).tag(entry.id)
-                    }
-                }
-                .pickerStyle(.menu)
-                LocalTextModelStatusView(modelID: translationOllamaModel)
-                if AppleTranslationGate.isSupported {
-                    Hint("Apple Translation is optional. When you pick a language, Parrot asks once to download that pack. Meetings never show that dialog. If you skip it, the selected model translates.")
-                }
                 if !cloudSpeechReady {
-                    Hint("Add the vendor's API key to enable Hybrid and Cloud speech. Custom is for text transforms only.")
+                    Hint("Add a Gemini or Groq key to enable Hybrid and Cloud speech.")
                 }
                 Button("Open API Keys") { section = .apiKeys }
                     .buttonStyle(.link)
+            }
+
+            Section("Translation") {
+                Picker("Translate into", selection: Binding(
+                    get: { recordingManager.translationStore.targetCode },
+                    set: { recordingManager.setTranslationTarget($0) }
+                )) {
+                    ForEach(TranslationLanguage.allCases) { language in
+                        Text(language.label).tag(language.rawValue)
+                    }
+                }
+                modePicker("Translation", selection: $translationMode, allowCloud: translationCloudReady, translation: true)
+                Hint("Hybrid and Cloud send the call's audio to Gemini. Local never does.")
+                if translationMode != ProcessingMode.cloud.rawValue {
+                    Picker("Local model", selection: $translationOllamaModel) {
+                        ForEach(LocalTextCatalog.models) { entry in
+                            Text(entry.label).tag(entry.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    LocalTextModelStatusView(modelID: translationOllamaModel)
+                }
+                if AppleTranslationGate.isSupported {
+                    Toggle("Apple Translation", isOn: $useAppleTranslation)
+                    Hint("Optional. Parrot asks once to download that language pack. Meetings never show that dialog.")
+                }
+                if !translationCloudReady {
+                    Hint("Add a Gemini key in API Keys to turn on Hybrid or Cloud translation.")
+                    Button("Open API Keys") { section = .apiKeys }
+                        .buttonStyle(.link)
+                }
             }
 
             Section("Dictation & transforms") {
@@ -335,11 +346,11 @@ struct SettingsView: View {
                         .onChange(of: showProcessingBar) { _, show in
                             ProcessingBarController.shared.setVisible(show)
                         }
-                    Hint("A pill at the bottom of the screen. Click Set key to map a shortcut. Dictation and transforms land in the field you are typing in when Accessibility is allowed.")
+                    Hint("A pill at the bottom of the screen. Click a shortcut row, then hold a modifier and a key. Escape cancels. Dictation lands in the field you are typing in when Accessibility is allowed.")
                     HotkeyRecorderRow(title: "Dictation", slot: .dictation)
                     HotkeyRecorderRow(title: "Transform — local", slot: .transformLocal)
                     HotkeyRecorderRow(title: "Transform — cloud", slot: .transformCloud)
-                    Hint("Transforms are Local vs Cloud only. Unbound until you record a shortcut. Right-click a shortcut to clear it.")
+                    Hint("Transforms are Local vs Cloud only. Unbound until you record a shortcut.")
                     Picker("Default transform", selection: Binding(
                         get: { recordingManager.transforms.itemID },
                         set: { recordingManager.transforms.itemID = $0 }
@@ -587,12 +598,15 @@ struct SettingsView: View {
                 }
     }
 
-    private func modePicker(_ title: String, selection: Binding<String>, allowCloud: Bool) -> some View {
+    private func modePicker(_ title: String, selection: Binding<String>, allowCloud: Bool, translation: Bool = false) -> some View {
         Picker(title, selection: selection) {
-            Text("Local — downloaded model only").tag(ProcessingMode.local.rawValue)
-            Text("Hybrid — downloaded model, then cloud enhances").tag(ProcessingMode.hybrid.rawValue)
+            Text(translation ? "Local — in-app model" : "Local — downloaded model only")
+                .tag(ProcessingMode.local.rawValue)
+            Text(translation ? "Hybrid — in-app, then Gemini" : "Hybrid — downloaded model, then cloud enhances")
+                .tag(ProcessingMode.hybrid.rawValue)
                 .disabled(!allowCloud)
-            Text("Cloud — vendor only, no local model").tag(ProcessingMode.cloud.rawValue)
+            Text(translation ? "Cloud — Gemini only" : "Cloud — vendor only, no local model")
+                .tag(ProcessingMode.cloud.rawValue)
                 .disabled(!allowCloud)
         }
         .pickerStyle(.radioGroup)
@@ -604,14 +618,9 @@ struct SettingsView: View {
         return vendor != .custom && vendor.speechKey() != nil
     }
 
-    /// Translation / transforms can use Custom as well as Gemini / Groq.
-    private var cloudRewriteReady: Bool {
-        switch CloudVendor.resolved(cloudVendor) {
-        case .gemini, .groq: CloudVendor.resolved(cloudVendor).speechKey() != nil
-        case .custom:
-            !OpenAICompatibleProvider.customBaseURL.trimmingCharacters(in: .whitespaces).isEmpty
-                && !OpenAICompatibleProvider.customModel.isEmpty
-        }
+    /// Translation Hybrid / Cloud always means Gemini, including the audio pass.
+    private var translationCloudReady: Bool {
+        CloudVendor.gemini.speechKey() != nil
     }
 
     // MARK: - API Keys

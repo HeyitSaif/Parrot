@@ -3,8 +3,9 @@
 # not emit default.metallib; without it the assembled app dies at launch:
 #   Failed to load the default metallib. library not found
 #
-# MLX looks next to the executable first (mlx.metallib), then in
-# mlx-swift_Cmlx.bundle. The Makefile copies this file to Contents/MacOS/.
+# MLX looks next to the executable first, then in mlx-swift_Cmlx.bundle.
+# The app assembler installs the bundle under Contents/Resources (not MacOS —
+# a loose metallib next to the binary fails codesign as unsigned nested code).
 #
 #   scripts/build-mlx-metallib.sh .build/release/mlx.metallib
 set -euo pipefail
